@@ -1,0 +1,12 @@
+---
+- name: TreatWorker
+  exchange: sneaker.example.default
+  routing_key: sneaker.example.treat
+  queue: sneaker.example.treat
+  durable: true
+  ack: true
+  threads: 1
+  steps:
+    - 5000       # 5 Second
+    - 30000      # 30 Second
+    - 60000      # 1 Minute

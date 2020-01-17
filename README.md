@@ -5,15 +5,21 @@
 * RabbitMQ
 
 ### Usage 使用方法
-Create two files below in config folder which is in your project folder:
-
-在你的项目中的config目录下创建以下两个文件
+1.在你的项目中的config目录下创建以下两个文件
 
 ```
 amqp.yml
 workers.yml
 ```
 This is a [example](https://github.com/oldfritter/sneaker-go/blob/master/example/config).
+
+2.workers
+
+[example  示例](https://github.com/oldfritter/sneaker-go/blob/master/example/sneakerWorkers)
+
+3.main
+
+[example  示例](https://github.com/oldfritter/sneaker-go/blob/master/example/workers.go)
 
 ### workers.yml配置说明
 ```

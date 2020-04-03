@@ -3,6 +3,7 @@ package sneakerWorkers
 import (
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v2"
@@ -13,6 +14,7 @@ type Worker struct {
 	Exchange   string            `yaml:"exchange"`
 	RoutingKey string            `yaml:"routing_key"`
 	Queue      string            `yaml:"queue"`
+	Log        string            `yaml:"log"`
 	Durable    bool              `yaml:"durable"`
 	Ack        bool              `yaml:"ack"`
 	Options    map[string]string `yaml:"options"`
@@ -20,6 +22,8 @@ type Worker struct {
 	Delays     []int32           `yaml:"delays"`
 	Steps      []int32           `yaml:"steps"`
 	Threads    int               `yaml:"threads"`
+
+	Logger *log.Logger
 }
 
 var AllWorkers []Worker
@@ -31,6 +35,9 @@ func InitWorkers() {
 		log.Fatal(err)
 	}
 	yaml.Unmarshal(content, &AllWorkers)
+	for i, _ := range AllWorkers {
+		AllWorkers[i].initLogger()
+	}
 }
 
 func (worker Worker) GetName() string {
@@ -44,6 +51,9 @@ func (worker Worker) GetRoutingKey() string {
 }
 func (worker Worker) GetQueue() string {
 	return worker.Queue
+}
+func (worker Worker) GetLog() string {
+	return worker.Log
 }
 func (worker Worker) GetDurable() bool {
 	return worker.Durable
@@ -65,4 +75,27 @@ func (worker Worker) GetSteps() []int32 {
 }
 func (worker Worker) GetThreads() int {
 	return worker.Threads
+}
+
+func (worker *Worker) LogInfo(text ...interface{}) {
+	worker.Logger.SetPrefix("INFO")
+	worker.Logger.Println(text)
+}
+
+func (worker *Worker) LogDebug(text ...interface{}) {
+	worker.Logger.SetPrefix("DEBUG")
+	worker.Logger.Println(text)
+}
+
+func (worker *Worker) LogError(text ...interface{}) {
+	worker.Logger.SetPrefix("ERROR")
+	worker.Logger.Println(text)
+}
+
+func (worker *Worker) initLogger() {
+	file, err := os.OpenFile(worker.GetLog(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	worker.Logger = log.New(file, "", log.LstdFlags)
 }

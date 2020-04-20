@@ -1,11 +1,11 @@
 package main
 
 import (
-	// "fmt"
-	// "io/ioutil"
+	"io/ioutil"
+	"log"
 	"os"
 	"os/signal"
-	// "strconv"
+	"strconv"
 
 	sneaker "github.com/oldfritter/sneaker-go"
 	"github.com/oldfritter/sneaker-go/utils"
@@ -29,10 +29,14 @@ func main() {
 func initialize() {
 	utils.InitializeAmqpConfig()
 
-	// err := ioutil.WriteFile("pids/workers.pid", []byte(strconv.Itoa(os.Getpid())), 0644)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
+	err := os.MkdirAll("pids", 0755)
+	if err != nil {
+		log.Fatalf("create folder error: %v", err)
+	}
+	err = ioutil.WriteFile("pids/workers.pid", []byte(strconv.Itoa(os.Getpid())), 0644)
+	if err != nil {
+		log.Fatalf("open file error: %v", err)
+	}
 }
 
 func closeResource() {

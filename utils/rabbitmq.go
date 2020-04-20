@@ -16,6 +16,7 @@ type Amqp struct {
 		Port     string `yaml:"port"`
 		Username string `yaml:"username"`
 		Password string `yaml:"password"`
+		Vhost    string `yaml:"vhost"`
 	} `yaml:"connect"`
 }
 
@@ -41,7 +42,7 @@ func InitializeAmqpConfig() {
 
 func InitializeAmqpConnection() {
 	var err error
-	RabbitMqConnect, err = amqp.Dial("amqp://" + AmqpGlobalConfig.Connect.Username + ":" + AmqpGlobalConfig.Connect.Password + "@" + AmqpGlobalConfig.Connect.Host + ":" + AmqpGlobalConfig.Connect.Port + "/")
+	RabbitMqConnect, err = amqp.Dial("amqp://" + AmqpGlobalConfig.Connect.Username + ":" + AmqpGlobalConfig.Connect.Password + "@" + AmqpGlobalConfig.Connect.Host + ":" + AmqpGlobalConfig.Connect.Port + "/" + AmqpGlobalConfig.Connect.Vhost)
 	if err != nil {
 		time.Sleep(5000)
 		InitializeAmqpConnection()

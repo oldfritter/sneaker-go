@@ -23,6 +23,10 @@ type Worker interface {
 	GetThreads() int
 }
 
+type Exception struct {
+	Msg string
+}
+
 func SubscribeMessageByQueue(worker Worker, arguments amqp.Table) (err error) {
 	channel, err := utils.RabbitMqConnect.Channel()
 	defer channel.Close()
@@ -35,18 +39,18 @@ func SubscribeMessageByQueue(worker Worker, arguments amqp.Table) (err error) {
 		channel.ExchangeDeclare(worker.GetExchange(), "topic", worker.GetDurable(), false, false, false, nil)
 		channel.QueueBind(worker.GetQueue(), worker.GetRoutingKey(), worker.GetExchange(), false, nil)
 		if len(worker.GetSteps()) > 0 {
-			channel.ExchangeDeclare(worker.GetQueue()+"-retry", "topic", worker.GetDurable(), false, false, false, nil)
-			channel.QueueBind(worker.GetQueue(), "#", worker.GetQueue()+"-retry", false, nil)
+			channel.ExchangeDeclare(worker.GetQueue()+".retry", "topic", worker.GetDurable(), false, false, false, nil)
+			channel.QueueBind(worker.GetQueue(), "#", worker.GetQueue()+".retry", false, nil)
 		}
 	}
 	for i, delay := range worker.GetDelays() {
 		_, err = channel.QueueDeclare(
-			worker.GetQueue()+"-delay-"+strconv.Itoa(i+1), // queue name
+			worker.GetQueue()+".delay."+strconv.Itoa(i+1), // queue name
 			worker.GetDurable(), // durable
 			false,               // delete when usused
 			false,               // exclusive
 			false,               // no-wait
-			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + "-retry", "x-message-ttl": delay}, // arguments
+			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": delay}, // arguments
 		)
 		if err != nil {
 			fmt.Println("Queue Declare: ", err)
@@ -55,12 +59,12 @@ func SubscribeMessageByQueue(worker Worker, arguments amqp.Table) (err error) {
 	}
 	for i, step := range worker.GetSteps() {
 		_, err = channel.QueueDeclare(
-			worker.GetQueue()+"-"+strconv.Itoa(i+1), // queue name
-			worker.GetDurable(),                     // durable
-			false,                                   // delete when usused
-			false,                                   // exclusive
-			false,                                   // no-wait
-			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + "-retry", "x-message-ttl": step}, // arguments
+			worker.GetQueue()+".retry."+strconv.Itoa(i+1), // queue name
+			worker.GetDurable(), // durable
+			false,               // delete when usused
+			false,               // exclusive
+			false,               // no-wait
+			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": step}, // arguments
 		)
 		if err != nil {
 			fmt.Println("Queue Declare: ", err)
@@ -76,7 +80,7 @@ func SubscribeMessageByQueue(worker Worker, arguments amqp.Table) (err error) {
 		}
 		msgs, _ := channel.Consume(
 			worker.GetQueue(), // queue
-			"",                // consumer
+			"sneaker-go",      // consumer
 			false,             // auto-ack
 			false,             // exclusive
 			false,             // no-local
@@ -84,9 +88,22 @@ func SubscribeMessageByQueue(worker Worker, arguments amqp.Table) (err error) {
 			nil,               // args
 		)
 		for d := range msgs {
-			response := reflect.ValueOf(worker).MethodByName(worker.GetName()).Call([]reflect.Value{reflect.ValueOf(&d.Body)})
-			if !(response[0].String() == "") && !response[1].IsNil() {
-				retry(response[0].String(), response[1].Bytes())
+			exception := Exception{}
+			response := excute(&worker, &d.Body, &exception)
+			if exception.Msg != "" || !response[0].IsNil() {
+				d.Headers["err"] = exception.Msg
+				if exception.Msg == "" {
+					d.Headers["err"] = response[0].String()
+				}
+				count := 0
+				if d.Headers["tryCount"] != nil {
+					count = int(d.Headers["tryCount"].(int32))
+				}
+				if count <= len(worker.GetSteps()) {
+					retry(worker.GetQueue(), &d.Body, &d)
+				} else {
+					logFailedMessageInFailedQueue(worker.GetQueue(), &d.Body, &d)
+				}
 			}
 			d.Ack(worker.GetAck())
 		}
@@ -94,7 +111,22 @@ func SubscribeMessageByQueue(worker Worker, arguments amqp.Table) (err error) {
 	return
 }
 
-func retry(queueName string, message []byte) (err error) {
+func excute(worker *Worker, body *[]byte, exception *Exception) (response []reflect.Value) {
+	defer func(e *Exception) {
+		r := recover()
+		if r != nil {
+			e.Msg = fmt.Sprintf("%v", r)
+		}
+	}(exception)
+	response = reflect.ValueOf(*worker).MethodByName((*worker).GetName()).Call([]reflect.Value{reflect.ValueOf(body)})
+	return
+}
+
+func retry(queueName string, message *[]byte, d *amqp.Delivery) (err error) {
+	count := 1
+	if (*d).Headers["tryCount"] != nil {
+		count = int((*d).Headers["tryCount"].(int32))
+	}
 	channel, err := utils.RabbitMqConnect.Channel()
 	defer channel.Close()
 	err = (*channel).Publish(
@@ -103,13 +135,47 @@ func retry(queueName string, message []byte) (err error) {
 		false,     // mandatory
 		false,     // immediate
 		amqp.Publishing{
-			Headers:         amqp.Table{},
+			Headers: amqp.Table{
+				"tryCount": count + 1,
+				"err":      (*d).Headers["err"],
+			},
 			ContentType:     "text/plain",
 			ContentEncoding: "",
-			Body:            message,
+			Body:            *message,
 			DeliveryMode:    amqp.Persistent, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
 			Priority:        0,               // 0-9
-			// a bunch of application/implementation-specific fields
+		},
+	)
+	if err != nil {
+		fmt.Println("Channel: ", err)
+		return
+	}
+	return
+}
+
+func logFailedMessageInFailedQueue(queueName string, message *[]byte, d *amqp.Delivery) (err error) {
+	count := 0
+	if (*d).Headers["tryCount"] != nil {
+		count = int((*d).Headers["tryCount"].(int32))
+	}
+	channel, err := utils.RabbitMqConnect.Channel()
+	defer channel.Close()
+	channel.QueueDeclare(queueName+".faild", true, false, false, false, amqp.Table{})
+	err = (*channel).Publish(
+		"",                  // publish to an exchange
+		queueName+".failed", // routing to 0 or more queues
+		false,               // mandatory
+		false,               // immediate
+		amqp.Publishing{
+			Headers: amqp.Table{
+				"tryCount": count,
+				"err":      (*d).Headers["err"],
+			},
+			ContentType:     "text/plain",
+			ContentEncoding: "",
+			Body:            *message,
+			DeliveryMode:    amqp.Persistent, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
+			Priority:        0,               // 0-9
 		},
 	)
 	if err != nil {

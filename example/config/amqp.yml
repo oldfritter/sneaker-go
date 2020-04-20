@@ -3,4 +3,4 @@ connect:
   port: 5672
   username: guest
   password: guest
-  vhost: /
+  vhost: /sneaker-go # 注：为了不与其它项目冲突，使用vhost /sneaker-go，如果您不熟悉可以改为 /

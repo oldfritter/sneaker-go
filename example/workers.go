@@ -47,7 +47,7 @@ func StartAllWorkers() {
 	for _, w := range sneakerWorkers.AllWorkers {
 		for i := 0; i < w.GetThreads(); i++ {
 			go func(w sneakerWorkers.Worker) {
-				sneaker.SubscribeMessageByQueue(w, amqp.Table{})
+				sneaker.SubscribeMessageByQueue(utils.RabbitMqConnect, w, amqp.Table{})
 			}(w)
 		}
 	}

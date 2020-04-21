@@ -59,7 +59,7 @@ func (worker Worker) GetLog() string {
 }
 func (worker Worker) GetLogFolder() string {
 	re := regexp.MustCompile(`\/.*\.log$`)
-	return strings.TrimRight(worker.Log, re.FindString(worker.Log))
+	return strings.TrimSuffix(worker.Log, re.FindString(worker.Log))
 }
 func (worker Worker) GetDurable() bool {
 	return worker.Durable

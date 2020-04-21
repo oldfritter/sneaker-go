@@ -98,7 +98,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 				if d.Headers["tryCount"] != nil {
 					count = int(d.Headers["tryCount"].(int32))
 				}
-				if count <= len(worker.GetSteps()) {
+				if count < len(worker.GetSteps()) {
 					retry(RabbitMqConnect, worker.GetQueue(), &d.Body, &d)
 				} else {
 					logFailedMessageInFailedQueue(RabbitMqConnect, worker.GetQueue(), &d.Body, &d)

@@ -49,7 +49,7 @@ func InitializeAmqpConnection() {
 	RabbitMqConnect = utils.RabbitMqConnect{conn}
 	if err != nil {
 		time.Sleep(5000)
-		// InitializeAmqpConnection()
+		InitializeAmqpConnection()
 		return
 	}
 	go func() {

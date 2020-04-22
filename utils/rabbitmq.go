@@ -1,63 +1,110 @@
 package utils
 
 import (
-	"io/ioutil"
+	"fmt"
 	"log"
-	"path/filepath"
-	"time"
 
 	"github.com/streadway/amqp"
-	"gopkg.in/yaml.v2"
 )
 
-type Amqp struct {
-	Connect struct {
-		Host     string `yaml:"host"`
-		Port     string `yaml:"port"`
-		Username string `yaml:"username"`
-		Password string `yaml:"password"`
-		Vhost    string `yaml:"vhost"`
-	} `yaml:"connect"`
+type RabbitMqConnect struct {
+	*amqp.Connection
 }
 
-var (
-	AmqpGlobalConfig Amqp
-	RabbitMqConnect  *amqp.Connection
-)
-
-func InitializeAmqpConfig() {
-	path_str, _ := filepath.Abs("config/amqp.yml")
-	content, err := ioutil.ReadFile(path_str)
+func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8) error {
+	channel, err := conn.Channel()
+	defer channel.Close()
 	if err != nil {
 		log.Fatal(err)
-		return
+		return fmt.Errorf("Channel: %s", err)
 	}
-	err = yaml.Unmarshal(content, &AmqpGlobalConfig)
+	if err = channel.Publish(
+		exchange, // publish to an exchange
+		routeKey, // routing to 0 or more queues
+		false,    // mandatory
+		false,    // immediate
+		amqp.Publishing{
+			Headers:         amqp.Table{},
+			ContentType:     contentType,
+			ContentEncoding: "",
+			Body:            *message,
+			DeliveryMode:    deliveryMode, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
+			Priority:        0,            // 0-9
+			// a bunch of application/implementation-specific fields
+		},
+	); err != nil {
+		log.Fatal(err)
+		return fmt.Errorf("Queue Publish: %s", err)
+	}
+	return nil
+}
+
+func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8) error {
+	channel, err := conn.Channel()
+	defer channel.Close()
 	if err != nil {
 		log.Fatal(err)
-		return
+		return fmt.Errorf("Channel: %s", err)
 	}
-	InitializeAmqpConnection()
+	if err = channel.Publish(
+		"",    // publish to an exchange
+		queue, // routing to 0 or more queues
+		false, // mandatory
+		false, // immediate
+		amqp.Publishing{
+			Headers:         amqp.Table{},
+			ContentType:     contentType,
+			ContentEncoding: "",
+			Body:            *message,
+			DeliveryMode:    deliveryMode, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
+			Priority:        0,            // 0-9
+			// a bunch of application/implementation-specific fields
+		},
+	); err != nil {
+		log.Fatal(err)
+		return fmt.Errorf("Queue Publish: %s", err)
+	}
+	return nil
 }
 
-func InitializeAmqpConnection() {
-	var err error
-	RabbitMqConnect, err = amqp.Dial("amqp://" + AmqpGlobalConfig.Connect.Username + ":" + AmqpGlobalConfig.Connect.Password + "@" + AmqpGlobalConfig.Connect.Host + ":" + AmqpGlobalConfig.Connect.Port + "/" + AmqpGlobalConfig.Connect.Vhost)
+func (conn *RabbitMqConnect) DeclareQueue(queueName string, durable, autoDelete, internal, noWait bool, arguments amqp.Table) error {
+	channel, err := conn.Channel()
+	defer channel.Close()
 	if err != nil {
-		time.Sleep(5000)
-		InitializeAmqpConnection()
-		return
+		log.Fatal(err)
+		return fmt.Errorf("Channel: %s", err)
 	}
-	go func() {
-		<-RabbitMqConnect.NotifyClose(make(chan *amqp.Error))
-		InitializeAmqpConnection()
-	}()
+	_, err = channel.QueueDeclare(queueName, durable, autoDelete, internal, noWait, arguments)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return err
 }
 
-func CloseAmqpConnection() {
-	RabbitMqConnect.Close()
+func (conn *RabbitMqConnect) DeclareExchange(name, kind string, durable, autoDelete, internal, noWait bool, arguments amqp.Table) error {
+	channel, err := conn.Channel()
+	defer channel.Close()
+	if err != nil {
+		log.Fatal(err)
+		return fmt.Errorf("Channel: %s", err)
+	}
+	err = channel.ExchangeDeclare(name, kind, durable, autoDelete, internal, noWait, arguments)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return err
 }
 
-func GetRabbitMqConnect() *amqp.Connection {
-	return RabbitMqConnect
+func (conn *RabbitMqConnect) QueueBind(name, key, exchange string, noWait bool, arguments amqp.Table) error {
+	channel, err := conn.Channel()
+	defer channel.Close()
+	if err != nil {
+		log.Fatal(err)
+		return fmt.Errorf("Channel: %s", err)
+	}
+	err = channel.QueueBind(name, key, exchange, noWait, arguments)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return err
 }

@@ -2,6 +2,7 @@ package sneaker
 
 import (
 	"fmt"
+	"log"
 	"reflect"
 	"strconv"
 
@@ -14,7 +15,6 @@ type Worker interface {
 	GetRoutingKey() string
 	GetQueue() string
 	GetDurable() bool
-	GetAck() bool
 	GetOptions() map[string]string
 	GetArguments() map[string]string
 	GetDelays() []int32
@@ -30,16 +30,36 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 	channel, err := RabbitMqConnect.Channel()
 	defer channel.Close()
 	if err != nil {
-		fmt.Println("Channel: ", err)
+		log.Println("Channel: ", err)
 		return
 	}
-	channel.QueueDeclare(worker.GetQueue(), worker.GetDurable(), false, false, false, arguments)
+	_, err = channel.QueueDeclare(worker.GetQueue(), worker.GetDurable(), false, false, false, arguments)
+	if err != nil {
+		log.Println("Queue ", worker.GetQueue(), " declare error: ", err)
+		return
+	}
 	if worker.GetExchange() != "" && worker.GetRoutingKey() != "" {
-		channel.ExchangeDeclare(worker.GetExchange(), "topic", worker.GetDurable(), false, false, false, nil)
-		channel.QueueBind(worker.GetQueue(), worker.GetRoutingKey(), worker.GetExchange(), false, nil)
+		err = channel.ExchangeDeclare(worker.GetExchange(), "topic", worker.GetDurable(), false, false, false, nil)
+		if err != nil {
+			log.Println("Exchange ", worker.GetExchange(), " declare error: ", err)
+			return
+		}
+		err = channel.QueueBind(worker.GetQueue(), worker.GetRoutingKey(), worker.GetExchange(), false, nil)
+		if err != nil {
+			log.Println("Queue ", worker.GetQueue(), " bind error: ", err)
+			return
+		}
 		if len(worker.GetSteps()) > 0 {
-			channel.ExchangeDeclare(worker.GetQueue()+".retry", "topic", worker.GetDurable(), false, false, false, nil)
-			channel.QueueBind(worker.GetQueue(), "#", worker.GetQueue()+".retry", false, nil)
+			err = channel.ExchangeDeclare(worker.GetQueue()+".retry", "topic", worker.GetDurable(), false, false, false, nil)
+			if err != nil {
+				log.Println("Exchange ", worker.GetQueue()+".retry", " declare error: ", err)
+				return
+			}
+			err = channel.QueueBind(worker.GetQueue(), "#", worker.GetQueue()+".retry", false, nil)
+			if err != nil {
+				log.Println("Queue ", worker.GetQueue(), " bind error: ", err)
+				return
+			}
 		}
 	}
 	for i, delay := range worker.GetDelays() {
@@ -52,7 +72,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": delay}, // arguments
 		)
 		if err != nil {
-			fmt.Println("Queue Declare: ", err)
+			log.Println("Queue ", worker.GetQueue()+".delay."+strconv.Itoa(i+1), " declare error : ", err)
 			return
 		}
 	}
@@ -66,7 +86,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": step}, // arguments
 		)
 		if err != nil {
-			fmt.Println("Queue Declare: ", err)
+			log.Println("Queue ", worker.GetQueue()+".retry."+strconv.Itoa(i+1), " declare error: ", err)
 			return
 		}
 	}
@@ -74,10 +94,10 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 		channel, err := RabbitMqConnect.Channel()
 		defer channel.Close()
 		if err != nil {
-			fmt.Println("Channel: ", err)
+			log.Println("Channel: ", err)
 			return
 		}
-		msgs, _ := channel.Consume(
+		msgs, err := channel.Consume(
 			worker.GetQueue(), // queue
 			"sneaker-go",      // consumer
 			false,             // auto-ack
@@ -86,6 +106,9 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			false,             // no-wait
 			nil,               // args
 		)
+		if err != nil {
+			log.Println("Consume error: ", err)
+		}
 		for d := range msgs {
 			exception := Exception{}
 			response := excute(&worker, &d.Body, &exception)
@@ -99,12 +122,15 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 					count = int(d.Headers["tryCount"].(int32))
 				}
 				if count < len(worker.GetSteps()) {
-					retry(RabbitMqConnect, worker.GetQueue(), &d.Body, &d)
+					err = retry(RabbitMqConnect, worker.GetQueue(), &d.Body, &d)
+					if err != nil {
+						log.Println("retry error: ", err)
+					}
 				} else {
 					logFailedMessageInFailedQueue(RabbitMqConnect, worker.GetQueue(), &d.Body, &d)
 				}
 			}
-			d.Ack(worker.GetAck())
+			d.Ack(true)
 		}
 	}()
 	return
@@ -146,7 +172,7 @@ func retry(RabbitMqConnect *amqp.Connection, queueName string, message *[]byte, 
 		},
 	)
 	if err != nil {
-		fmt.Println("Channel: ", err)
+		log.Println("Publish error: ", err)
 		return
 	}
 	return
@@ -159,7 +185,11 @@ func logFailedMessageInFailedQueue(RabbitMqConnect *amqp.Connection, queueName s
 	}
 	channel, err := RabbitMqConnect.Channel()
 	defer channel.Close()
-	channel.QueueDeclare(queueName+".faild", true, false, false, false, amqp.Table{})
+	_, err = channel.QueueDeclare(queueName+".faild", true, false, false, false, amqp.Table{})
+	if err != nil {
+		log.Println("Queue ", queueName+".faild", " declare error: ", err)
+		return
+	}
 	err = (*channel).Publish(
 		"",                  // publish to an exchange
 		queueName+".failed", // routing to 0 or more queues
@@ -178,7 +208,7 @@ func logFailedMessageInFailedQueue(RabbitMqConnect *amqp.Connection, queueName s
 		},
 	)
 	if err != nil {
-		fmt.Println("Channel: ", err)
+		log.Println("Publish error: ", err)
 		return
 	}
 	return

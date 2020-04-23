@@ -64,9 +64,6 @@ func (worker Worker) GetLogFolder() string {
 func (worker Worker) GetDurable() bool {
 	return worker.Durable
 }
-func (worker Worker) GetAck() bool {
-	return worker.Ack
-}
 func (worker Worker) GetOptions() map[string]string {
 	return worker.Options
 }

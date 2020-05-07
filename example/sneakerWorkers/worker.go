@@ -28,7 +28,10 @@ type Worker struct {
 	Logger *log.Logger
 }
 
-var AllWorkers []Worker
+var (
+	AllWorkers []Worker
+	DefaultLog = "logs/workers.log"
+)
 
 func InitWorkers() {
 	path_str, _ := filepath.Abs("config/workers.yml")
@@ -55,11 +58,14 @@ func (worker Worker) GetQueue() string {
 	return worker.Queue
 }
 func (worker Worker) GetLog() string {
-	return worker.Log
+	if worker.Log != "" {
+		return worker.Log
+	}
+	return DefaultLog
 }
 func (worker Worker) GetLogFolder() string {
 	re := regexp.MustCompile(`\/.*\.log$`)
-	return strings.TrimSuffix(worker.Log, re.FindString(worker.Log))
+	return strings.TrimSuffix(worker.GetLog(), re.FindString(worker.GetLog()))
 }
 func (worker Worker) GetDurable() bool {
 	return worker.Durable
@@ -96,9 +102,11 @@ func (worker *Worker) LogError(text ...interface{}) {
 }
 
 func (worker *Worker) initLogger() {
-	err := os.MkdirAll(worker.GetLogFolder(), 0755)
+	err := os.Mkdir(worker.GetLogFolder(), 0755)
 	if err != nil {
-		log.Fatalf("create folder error: %v", err)
+		if !os.IsExist(err) {
+			log.Fatalf("create folder error: %v", err)
+		}
 	}
 	file, err := os.OpenFile(worker.GetLog(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {

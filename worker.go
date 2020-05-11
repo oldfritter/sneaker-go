@@ -113,6 +113,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			exception := Exception{}
 			response := excute(&worker, &d.Body, &exception)
 			if exception.Msg != "" || !response[0].IsNil() {
+				d.Headers = make(map[string]interface{})
 				d.Headers["err"] = exception.Msg
 				if exception.Msg == "" {
 					d.Headers["err"] = response[0].String()

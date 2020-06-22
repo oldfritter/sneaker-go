@@ -11,3 +11,4 @@
     - 5000       # 5 Second
     - 30000      # 30 Second
     - 60000      # 1 Minute
+  delay: true

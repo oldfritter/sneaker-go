@@ -19,9 +19,9 @@ type Worker struct {
 	Log        string            `yaml:"log"`
 	Durable    bool              `yaml:"durable"`
 	Ack        bool              `yaml:"ack"`
+	Delay      bool              `yaml:"delay"`
 	Options    map[string]string `yaml:"options"`
 	Arguments  map[string]string `yaml:"arguments"`
-	Delays     []int32           `yaml:"delays"`
 	Steps      []int32           `yaml:"steps"`
 	Threads    int               `yaml:"threads"`
 
@@ -70,14 +70,14 @@ func (worker Worker) GetLogFolder() string {
 func (worker Worker) GetDurable() bool {
 	return worker.Durable
 }
+func (worker Worker) GetDelay() bool {
+	return worker.Delay
+}
 func (worker Worker) GetOptions() map[string]string {
 	return worker.Options
 }
 func (worker Worker) GetArguments() map[string]string {
 	return worker.Arguments
-}
-func (worker Worker) GetDelays() []int32 {
-	return worker.Delays
 }
 func (worker Worker) GetSteps() []int32 {
 	return worker.Steps

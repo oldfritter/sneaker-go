@@ -15,9 +15,9 @@ type Worker interface {
 	GetRoutingKey() string
 	GetQueue() string
 	GetDurable() bool
+	GetDelay() bool
 	GetOptions() map[string]string
 	GetArguments() map[string]string
-	GetDelays() []int32
 	GetSteps() []int32
 	GetThreads() int
 }
@@ -62,20 +62,34 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			}
 		}
 	}
-	for i, delay := range worker.GetDelays() {
+	if worker.GetDelay() {
 		_, err = channel.QueueDeclare(
-			worker.GetQueue()+".delay."+strconv.Itoa(i+1), // queue name
-			worker.GetDurable(), // durable
-			false,               // delete when usused
-			false,               // exclusive
-			false,               // no-wait
-			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": delay}, // arguments
+			worker.GetQueue()+".delay", // queue name
+			worker.GetDurable(),        // durable
+			false,                      // delete when usused
+			false,                      // exclusive
+			false,                      // no-wait
+			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry"}, // arguments
 		)
 		if err != nil {
-			log.Println("Queue ", worker.GetQueue()+".delay."+strconv.Itoa(i+1), " declare error : ", err)
+			log.Println("Queue ", worker.GetQueue()+".delay declare error : ", err)
 			return
 		}
 	}
+	// for i, delay := range worker.GetDelays() {
+	//   _, err = channel.QueueDeclare(
+	//     worker.GetQueue()+".delay."+strconv.Itoa(i+1), // queue name
+	//     worker.GetDurable(), // durable
+	//     false,               // delete when usused
+	//     false,               // exclusive
+	//     false,               // no-wait
+	//     amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": delay}, // arguments
+	//   )
+	//   if err != nil {
+	//     log.Println("Queue ", worker.GetQueue()+".delay."+strconv.Itoa(i+1), " declare error : ", err)
+	//     return
+	//   }
+	// }
 	for i, step := range worker.GetSteps() {
 		_, err = channel.QueueDeclare(
 			worker.GetQueue()+".retry."+strconv.Itoa(i+1), // queue name

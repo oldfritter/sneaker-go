@@ -11,7 +11,7 @@ type RabbitMqConnect struct {
 	*amqp.Connection
 }
 
-func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8) error {
+func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
 	channel, err := conn.Channel()
 	defer channel.Close()
 	if err != nil {
@@ -28,8 +28,9 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 			ContentType:     contentType,
 			ContentEncoding: "",
 			Body:            *message,
-			DeliveryMode:    deliveryMode, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
+			DeliveryMode:    deliveryMode, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=transient
 			Priority:        0,            // 0-9
+			Expiration:      expiration,
 			// a bunch of application/implementation-specific fields
 		},
 	); err != nil {
@@ -39,7 +40,7 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 	return nil
 }
 
-func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8) error {
+func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
 	channel, err := conn.Channel()
 	defer channel.Close()
 	if err != nil {
@@ -56,8 +57,9 @@ func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, me
 			ContentType:     contentType,
 			ContentEncoding: "",
 			Body:            *message,
-			DeliveryMode:    deliveryMode, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
+			DeliveryMode:    deliveryMode, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=transient
 			Priority:        0,            // 0-9
+			Expiration:      expiration,
 			// a bunch of application/implementation-specific fields
 		},
 	); err != nil {

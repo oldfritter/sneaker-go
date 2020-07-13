@@ -91,17 +91,16 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			exception := Exception{}
 			response := excute(&worker, &d.Body, &exception)
 			if exception.Msg != "" || !response[0].IsNil() {
-				d.Headers = make(map[string]interface{})
 				d.Headers["err"] = exception.Msg
 				if exception.Msg == "" {
 					d.Headers["err"] = response[0].String()
 				}
-				count := 0
+				count, steps := 0, len(worker.GetSteps())
 				if d.Headers["tryCount"] != nil {
 					count = int(d.Headers["tryCount"].(int32))
 				}
-				if count < len(worker.GetSteps()) {
-					err = retry(RabbitMqConnect, worker.GetQueue(), &d.Body, &d)
+				if count < steps {
+					err = retry(RabbitMqConnect, worker.GetQueue()+".retry."+strconv.Itoa(count+1), &d)
 					if err != nil {
 						log.Println("retry error: ", err)
 					}
@@ -126,22 +125,22 @@ func excute(worker *Worker, body *[]byte, exception *Exception) (response []refl
 	return
 }
 
-func retry(RabbitMqConnect *amqp.Connection, queueName string, message *[]byte, d *amqp.Delivery) (err error) {
-	count := 1
+func retry(RabbitMqConnect *amqp.Connection, queueName string, d *amqp.Delivery) (err error) {
+	count := 0
 	if (*d).Headers["tryCount"] != nil {
-		count = int((*d).Headers["tryCount"].(int32))
+		count = int(d.Headers["tryCount"].(int32))
 	}
 	channel, err := RabbitMqConnect.Channel()
 	defer channel.Close()
-	err = (*channel).Publish("", queueName, false, false,
+	err = channel.Publish("", queueName, false, false,
 		amqp.Publishing{
 			Headers: amqp.Table{
+				"err":      d.Headers["err"],
 				"tryCount": count + 1,
-				"err":      (*d).Headers["err"],
 			},
-			ContentType:     "text/plain",
+			ContentType:     "application/json",
 			ContentEncoding: "",
-			Body:            *message,
+			Body:            d.Body,
 			DeliveryMode:    amqp.Persistent,
 			Priority:        0,
 		},
@@ -171,7 +170,7 @@ func logFailedMessageInFailedQueue(RabbitMqConnect *amqp.Connection, queueName s
 				"tryCount": count,
 				"err":      (*d).Headers["err"],
 			},
-			ContentType:     "text/plain",
+			ContentType:     "application/json",
 			ContentEncoding: "",
 			Body:            *message,
 			DeliveryMode:    amqp.Persistent,

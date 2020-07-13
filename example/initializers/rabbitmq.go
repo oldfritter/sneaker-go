@@ -25,7 +25,7 @@ type Amqp struct {
 
 var (
 	AmqpGlobalConfig Amqp
-	RabbitMqConnect  utils.RabbitMqConnect
+	RabbitMqConnect  sneaker.RabbitMqConnect
 )
 
 func InitializeAmqpConfig() {
@@ -46,7 +46,7 @@ func InitializeAmqpConfig() {
 func InitializeAmqpConnection() {
 	var err error
 	conn, err := amqp.Dial("amqp://" + AmqpGlobalConfig.Connect.Username + ":" + AmqpGlobalConfig.Connect.Password + "@" + AmqpGlobalConfig.Connect.Host + ":" + AmqpGlobalConfig.Connect.Port + "/" + AmqpGlobalConfig.Connect.Vhost)
-	RabbitMqConnect = utils.RabbitMqConnect{conn}
+	RabbitMqConnect = sneaker.RabbitMqConnect{conn}
 	if err != nil {
 		time.Sleep(5000)
 		InitializeAmqpConnection()
@@ -62,6 +62,6 @@ func CloseAmqpConnection() {
 	RabbitMqConnect.Close()
 }
 
-func GetRabbitMqConnect() utils.RabbitMqConnect {
+func GetRabbitMqConnect() sneaker.RabbitMqConnect {
 	return RabbitMqConnect
 }

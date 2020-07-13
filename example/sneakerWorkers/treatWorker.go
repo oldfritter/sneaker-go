@@ -16,6 +16,7 @@ func (worker Worker) TreatWorker(payloadJson *[]byte) (err error) {
 		worker.LogError("payload: ", payload, ", time:", (time.Now().UnixNano()-start)/1000000, " ms")
 		return
 	}
+	panic("test panic")
 
 	// 这里完成此worker的功能
 

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/oldfritter/sneaker-go/v2/utils"
+	"github.com/oldfritter/sneaker-go/v2"
 	"github.com/streadway/amqp"
 	"gopkg.in/yaml.v2"
 )

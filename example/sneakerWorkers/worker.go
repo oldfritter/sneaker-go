@@ -18,7 +18,6 @@ type Worker struct {
 	Queue      string            `yaml:"queue"`
 	Log        string            `yaml:"log"`
 	Durable    bool              `yaml:"durable"`
-	Ack        bool              `yaml:"ack"`
 	Delay      bool              `yaml:"delay"`
 	Options    map[string]string `yaml:"options"`
 	Arguments  map[string]string `yaml:"arguments"`

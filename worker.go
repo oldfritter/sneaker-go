@@ -63,42 +63,14 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 		}
 	}
 	if worker.GetDelay() {
-		_, err = channel.QueueDeclare(
-			worker.GetQueue()+".delay", // queue name
-			worker.GetDurable(),        // durable
-			false,                      // delete when usused
-			false,                      // exclusive
-			false,                      // no-wait
-			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry"}, // arguments
-		)
+		_, err = channel.QueueDeclare(worker.GetQueue()+".delay", worker.GetDurable(), false, false, false, amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry"})
 		if err != nil {
 			log.Println("Queue ", worker.GetQueue()+".delay declare error : ", err)
 			return
 		}
 	}
-	// for i, delay := range worker.GetDelays() {
-	//   _, err = channel.QueueDeclare(
-	//     worker.GetQueue()+".delay."+strconv.Itoa(i+1), // queue name
-	//     worker.GetDurable(), // durable
-	//     false,               // delete when usused
-	//     false,               // exclusive
-	//     false,               // no-wait
-	//     amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": delay}, // arguments
-	//   )
-	//   if err != nil {
-	//     log.Println("Queue ", worker.GetQueue()+".delay."+strconv.Itoa(i+1), " declare error : ", err)
-	//     return
-	//   }
-	// }
 	for i, step := range worker.GetSteps() {
-		_, err = channel.QueueDeclare(
-			worker.GetQueue()+".retry."+strconv.Itoa(i+1), // queue name
-			worker.GetDurable(), // durable
-			false,               // delete when usused
-			false,               // exclusive
-			false,               // no-wait
-			amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": step}, // arguments
-		)
+		_, err = channel.QueueDeclare(worker.GetQueue()+".retry."+strconv.Itoa(i+1), worker.GetDurable(), false, false, false, amqp.Table{"x-dead-letter-exchange": worker.GetQueue() + ".retry", "x-message-ttl": step})
 		if err != nil {
 			log.Println("Queue ", worker.GetQueue()+".retry."+strconv.Itoa(i+1), " declare error: ", err)
 			return
@@ -111,15 +83,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 			log.Println("Channel: ", err)
 			return
 		}
-		msgs, err := channel.Consume(
-			worker.GetQueue(), // queue
-			"sneaker-go",      // consumer
-			false,             // auto-ack
-			false,             // exclusive
-			false,             // no-local
-			false,             // no-wait
-			nil,               // args
-		)
+		msgs, err := channel.Consume(worker.GetQueue(), "sneaker-go", false, false, false, false, nil)
 		if err != nil {
 			log.Println("Consume error: ", err)
 		}
@@ -169,11 +133,7 @@ func retry(RabbitMqConnect *amqp.Connection, queueName string, message *[]byte, 
 	}
 	channel, err := RabbitMqConnect.Channel()
 	defer channel.Close()
-	err = (*channel).Publish(
-		"",        // publish to an exchange
-		queueName, // routing to 0 or more queues
-		false,     // mandatory
-		false,     // immediate
+	err = (*channel).Publish("", queueName, false, false,
 		amqp.Publishing{
 			Headers: amqp.Table{
 				"tryCount": count + 1,
@@ -182,8 +142,8 @@ func retry(RabbitMqConnect *amqp.Connection, queueName string, message *[]byte, 
 			ContentType:     "text/plain",
 			ContentEncoding: "",
 			Body:            *message,
-			DeliveryMode:    amqp.Persistent, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
-			Priority:        0,               // 0-9
+			DeliveryMode:    amqp.Persistent,
+			Priority:        0,
 		},
 	)
 	if err != nil {
@@ -205,11 +165,7 @@ func logFailedMessageInFailedQueue(RabbitMqConnect *amqp.Connection, queueName s
 		log.Println("Queue ", queueName+".faild", " declare error: ", err)
 		return
 	}
-	err = (*channel).Publish(
-		"",                  // publish to an exchange
-		queueName+".failed", // routing to 0 or more queues
-		false,               // mandatory
-		false,               // immediate
+	err = (*channel).Publish("", queueName+".failed", false, false,
 		amqp.Publishing{
 			Headers: amqp.Table{
 				"tryCount": count,
@@ -218,8 +174,8 @@ func logFailedMessageInFailedQueue(RabbitMqConnect *amqp.Connection, queueName s
 			ContentType:     "text/plain",
 			ContentEncoding: "",
 			Body:            *message,
-			DeliveryMode:    amqp.Persistent, // amqp.Persistent, amqp.Transient // 1=non-persistent, 2=persistent
-			Priority:        0,               // 0-9
+			DeliveryMode:    amqp.Persistent,
+			Priority:        0,
 		},
 	)
 	if err != nil {

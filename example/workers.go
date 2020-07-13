@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"strconv"
 
-	sneaker "github.com/oldfritter/sneaker-go"
+	sneaker "github.com/oldfritter/sneaker-go/v2"
 	"github.com/streadway/amqp"
 
 	"github.com/oldfritter/sneaker-go/example/initializers"

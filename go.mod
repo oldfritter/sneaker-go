@@ -1,4 +1,4 @@
-module github.com/oldfritter/sneaker-go
+module github.com/oldfritter/sneaker-go/v2
 
 go 1.13
 

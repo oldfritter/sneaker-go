@@ -1,5 +1,5 @@
-github.com/oldfritter/sneaker-go v1.1.0 h1:J5bXkAx73eVylAgqM+4x8oNdoHKmAHK9IRmTyNJtRnU=
-github.com/oldfritter/sneaker-go v1.1.0/go.mod h1:q9+KC43OfLklfiKffi11et1HpMufAyD5q3mI/cdpOHw=
+github.com/oldfritter/sneaker-go/v2 v2.0.2 h1:VhYbjv1jiPkO8Oex6XQjNc/CD9D0JIV5jDQgU/9Au8Y=
+github.com/oldfritter/sneaker-go/v2 v2.0.2/go.mod h1:bryvrz4puhkiLZVVZFVC/VcPmZbPHC5mq9o7UKTJoj4=
 github.com/streadway/amqp v0.0.0-20200108173154-1c71cc93ed71/go.mod h1:AZpEONHx3DKn8O/DFsRAY58/XVQiIPMTMB1SddzLXVw=
 github.com/streadway/amqp v1.0.0 h1:kuuDrUJFZL1QYL9hUNuCxNObNzB0bV/ZG5jV3RWAQgo=
 github.com/streadway/amqp v1.0.0/go.mod h1:AZpEONHx3DKn8O/DFsRAY58/XVQiIPMTMB1SddzLXVw=

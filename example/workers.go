@@ -10,8 +10,8 @@ import (
 	sneaker "github.com/oldfritter/sneaker-go/v2"
 	"github.com/streadway/amqp"
 
-	"github.com/oldfritter/sneaker-go/example/initializers"
-	"github.com/oldfritter/sneaker-go/example/sneakerWorkers"
+	"example/initializers"
+	"example/sneakerWorkers"
 )
 
 func main() {

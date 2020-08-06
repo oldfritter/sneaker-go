@@ -53,7 +53,7 @@ func (worker Worker) GetExchange() string {
 }
 func (worker Worker) GetExchangeType() string {
 	if worker.ExchangeType == "" {
-		worker.ExchangeType = "Topic"
+		worker.ExchangeType = "topic"
 	}
 	return worker.ExchangeType
 }

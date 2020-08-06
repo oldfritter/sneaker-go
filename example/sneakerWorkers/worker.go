@@ -12,17 +12,18 @@ import (
 )
 
 type Worker struct {
-	Name       string            `yaml:"name"`
-	Exchange   string            `yaml:"exchange"`
-	RoutingKey string            `yaml:"routing_key"`
-	Queue      string            `yaml:"queue"`
-	Log        string            `yaml:"log"`
-	Durable    bool              `yaml:"durable"`
-	Delay      bool              `yaml:"delay"`
-	Options    map[string]string `yaml:"options"`
-	Arguments  map[string]string `yaml:"arguments"`
-	Steps      []int32           `yaml:"steps"`
-	Threads    int               `yaml:"threads"`
+	Name         string            `yaml:"name"`
+	Exchange     string            `yaml:"exchange"`
+	ExchangeType string            `yaml:"exchange_type"`
+	RoutingKey   string            `yaml:"routing_key"`
+	Queue        string            `yaml:"queue"`
+	Log          string            `yaml:"log"`
+	Durable      bool              `yaml:"durable"`
+	Delay        bool              `yaml:"delay"`
+	Options      map[string]string `yaml:"options"`
+	Arguments    map[string]string `yaml:"arguments"`
+	Steps        []int32           `yaml:"steps"`
+	Threads      int               `yaml:"threads"`
 
 	Logger *log.Logger
 }
@@ -49,6 +50,12 @@ func (worker Worker) GetName() string {
 }
 func (worker Worker) GetExchange() string {
 	return worker.Exchange
+}
+func (worker Worker) GetExchangeType() string {
+	if worker.ExchangeType == "" {
+		worker.ExchangeType = "Topic"
+	}
+	return worker.ExchangeType
 }
 func (worker Worker) GetRoutingKey() string {
 	return worker.RoutingKey

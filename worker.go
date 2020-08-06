@@ -12,6 +12,7 @@ import (
 type Worker interface {
 	GetName() string
 	GetExchange() string
+	GetExchangeType() string
 	GetRoutingKey() string
 	GetQueue() string
 	GetDurable() bool
@@ -39,7 +40,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker Worker, ar
 		return
 	}
 	if worker.GetExchange() != "" && worker.GetRoutingKey() != "" {
-		err = channel.ExchangeDeclare(worker.GetExchange(), "topic", worker.GetDurable(), false, false, false, nil)
+		err = channel.ExchangeDeclare(worker.GetExchange(), worker.GetExchangeType(), worker.GetDurable(), false, false, false, nil)
 		if err != nil {
 			log.Println("Exchange ", worker.GetExchange(), " declare error: ", err)
 			return

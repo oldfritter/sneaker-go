@@ -49,9 +49,9 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, a
 		}
 	}
 	if worker.GetDelay() {
-		_, err = channel.QueueDeclare(worker.GetQueue()+".delay", worker.GetDurable(), false, false, false, amqp.Table{"x-dead-letter-exchange": worker.GetRetryExchange()})
+		_, err = channel.QueueDeclare(worker.GetDelayQueue(), worker.GetDurable(), false, false, false, amqp.Table{"x-dead-letter-exchange": worker.GetRetryExchange()})
 		if err != nil {
-			log.Println("Queue ", worker.GetQueue()+".delay declare error : ", err)
+			log.Println("Queue ", worker.GetDelayQueue()+" declare error : ", err)
 			return
 		}
 	}

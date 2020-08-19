@@ -23,6 +23,7 @@ type WorkerI interface {
 	GetExchangeType() string
 	GetRoutingKey() string
 	GetQueue() string
+	GetDelayQueue() string
 	GetRetryQueue() string
 	GetFailedQueue() string
 	GetLog() string
@@ -42,6 +43,9 @@ type Worker struct {
 	ExchangeType string            `yaml:"exchange_type"` // default: topic
 	RoutingKey   string            `yaml:"routing_key"`
 	Queue        string            `yaml:"queue"`
+	DelayQueue   string            `yaml:"delay_queue"`
+	RetryQueue   string            `yaml:"retry_queue"`
+	FailedQueue  string            `yaml:"failed_queue"`
 	Log          string            `yaml:"log"`
 	Durable      bool              `yaml:"durable"`
 	Delay        bool              `yaml:"delay"`
@@ -74,10 +78,22 @@ func (worker *Worker) GetRoutingKey() string {
 func (worker *Worker) GetQueue() string {
 	return worker.Queue
 }
+func (worker *Worker) GetDelayQueue() string {
+	if worker.DelayQueue != "" {
+		return worker.DelayQueue
+	}
+	return worker.Queue + ".delay"
+}
 func (worker *Worker) GetRetryQueue() string {
+	if worker.RetryQueue != "" {
+		return worker.RetryQueue
+	}
 	return worker.Queue + ".retry"
 }
 func (worker *Worker) GetFailedQueue() string {
+	if worker.FailedQueue != "" {
+		return worker.FailedQueue
+	}
 	return worker.Queue + ".failed"
 }
 func (worker *Worker) GetLog() string {

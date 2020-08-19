@@ -11,7 +11,7 @@ type RabbitMqConnect struct {
 	*amqp.Connection
 }
 
-func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
+func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, contentType string, mandatory, immediate bool, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
 	channel, err := conn.Channel()
 	defer channel.Close()
 	if err != nil {
@@ -19,10 +19,10 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 		return fmt.Errorf("Channel: %s", err)
 	}
 	if err = channel.Publish(
-		exchange, // publish to an exchange
-		routeKey, // routing to 0 or more queues
-		false,    // mandatory
-		false,    // immediate
+		exchange,  // publish to an exchange
+		routeKey,  // routing to 0 or more queues
+		mandatory, // mandatory
+		immediate, // immediate
 		amqp.Publishing{
 			Headers:         amqp.Table{},
 			ContentType:     contentType,
@@ -40,7 +40,7 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 	return nil
 }
 
-func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
+func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, mandatory, immediate bool, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
 	channel, err := conn.Channel()
 	defer channel.Close()
 	if err != nil {
@@ -48,10 +48,10 @@ func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, me
 		return fmt.Errorf("Channel: %s", err)
 	}
 	if err = channel.Publish(
-		"",    // publish to an exchange
-		queue, // routing to 0 or more queues
-		false, // mandatory
-		false, // immediate
+		"",        // publish to an exchange
+		queue,     // routing to 0 or more queues
+		mandatory, // mandatory
+		immediate, // immediate
 		amqp.Publishing{
 			Headers:         amqp.Table{},
 			ContentType:     contentType,

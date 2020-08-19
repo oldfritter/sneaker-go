@@ -29,7 +29,7 @@ This is a [example](https://github.com/oldfritter/sneaker-go/blob/master/example
   routing_key: sneaker.example.treat  # 消息经过的routing_key
   queue: sneaker.example.treat  # 消息进入的queue
   durable: true
-  ack: true  # 是否ack
+  log: logs/treatWorker.log # 自定义日志文件
   threads: 1  # 并发处理数量
   steps:  # 重试队列的延时配置
     - 5000       # 5 Second

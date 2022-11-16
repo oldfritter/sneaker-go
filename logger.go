@@ -5,6 +5,10 @@ import (
 	"os"
 )
 
+const (
+	DefaultLog = "logs/workers.log"
+)
+
 func (worker *Worker) LogInfo(text ...interface{}) {
 	worker.Logger.SetPrefix("INFO: " + worker.GetName() + " ")
 	worker.Logger.Println(text)

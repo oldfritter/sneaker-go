@@ -25,6 +25,7 @@ type Worker struct {
 	Arguments    map[string]string `yaml:"arguments"`
 	Steps        []string          `yaml:"steps"`
 	Threads      int               `yaml:"threads"`
+	Ready        bool
 
 	Logger          *log.Logger
 	rabbitMqConnect *RabbitMqConnect
@@ -101,6 +102,9 @@ func (worker *Worker) GetSteps() []string {
 func (worker *Worker) GetThreads() int {
 	return worker.Threads
 }
+func (worker *Worker) GetRabbitMqConnect() *RabbitMqConnect {
+	return worker.rabbitMqConnect
+}
 
 func (worker *Worker) Perform(message interface{}) {
 	b, _ := json.Marshal(&message)
@@ -119,4 +123,16 @@ func (worker *Worker) Perform(message interface{}) {
 
 func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
 	worker.rabbitMqConnect = rabbitMqConnect
+}
+
+func (worker *Worker) IsReady() bool {
+	return worker.Ready
+}
+
+func (worker *Worker) Start() {
+	worker.Ready = true
+}
+
+func (worker *Worker) Stop() {
+	worker.Ready = false
 }

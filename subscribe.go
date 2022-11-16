@@ -110,7 +110,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, a
 		}
 		msgs, err := channel.Consume(
 			worker.GetQueue(),
-			"sneaker-go",
+			worker.GetName(),
 			false,
 			false,
 			false,

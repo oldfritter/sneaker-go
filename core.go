@@ -1,9 +1,5 @@
 package sneaker
 
-const (
-	DefaultLog = "logs/workers.log"
-)
-
 type Exception struct {
 	Msg string
 }
@@ -27,7 +23,13 @@ type WorkerI interface {
 	GetArguments() map[string]string
 	GetSteps() []string
 	GetThreads() int
+	GetRabbitMqConnect() *RabbitMqConnect
+
 	InitLogger()
 	Perform(interface{})
 	SetRabbitMqConnect(*RabbitMqConnect)
+
+	IsReady() bool
+	Start()
+	Stop()
 }

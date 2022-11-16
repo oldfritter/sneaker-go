@@ -1,46 +1,18 @@
 package sneaker
 
 import (
+	"encoding/json"
 	"log"
-	"os"
 	"regexp"
 	"strings"
+
+	"github.com/streadway/amqp"
 )
-
-const (
-	DefaultLog = "logs/workers.log"
-)
-
-type Exception struct {
-	Msg string
-}
-
-type WorkerI interface {
-	Work(*[]byte) error
-	GetName() string
-	GetExchange() string
-	GetRetryExchange() string
-	GetExchangeType() string
-	GetRoutingKey() string
-	GetQueue() string
-	GetDelayQueue() string
-	GetRetryQueue() string
-	GetFailedQueue() string
-	GetLog() string
-	GetLogFolder() string
-	GetDurable() bool
-	GetDelay() bool
-	GetOptions() map[string]string
-	GetArguments() map[string]string
-	GetSteps() []string
-	GetThreads() int
-	InitLogger()
-}
 
 type Worker struct {
 	Name         string            `yaml:"name"`
 	Exchange     string            `yaml:"exchange"`
-	ExchangeType string            `yaml:"exchange_type"` // default: topic
+	ExchangeType string            `yaml:"exchange_type"`
 	RoutingKey   string            `yaml:"routing_key"`
 	Queue        string            `yaml:"queue"`
 	DelayQueue   string            `yaml:"delay_queue"`
@@ -54,7 +26,12 @@ type Worker struct {
 	Steps        []string          `yaml:"steps"`
 	Threads      int               `yaml:"threads"`
 
-	Logger *log.Logger
+	Logger          *log.Logger
+	rabbitMqConnect *RabbitMqConnect
+}
+
+func (worker *Worker) Work(body *[]byte) (err error) {
+	return err
 }
 
 func (worker *Worker) GetName() string {
@@ -125,35 +102,21 @@ func (worker *Worker) GetThreads() int {
 	return worker.Threads
 }
 
-func (worker *Worker) LogInfo(text ...interface{}) {
-	worker.Logger.SetPrefix("INFO: " + worker.GetName() + " ")
-	worker.Logger.Println(text)
+func (worker *Worker) Perform(message interface{}) {
+	b, _ := json.Marshal(&message)
+	worker.rabbitMqConnect.PublishMessageWithRouteKey(
+		worker.GetExchange(),
+		worker.GetRoutingKey(),
+		"application/json",
+		false,
+		false,
+		&b,
+		amqp.Table{},
+		amqp.Persistent,
+		"",
+	)
 }
 
-func (worker *Worker) LogDebug(text ...interface{}) {
-	worker.Logger.SetPrefix("DEBUG: " + worker.GetName() + " ")
-	worker.Logger.Println(text)
-}
-
-func (worker *Worker) LogError(text ...interface{}) {
-	worker.Logger.SetPrefix("ERROR: " + worker.GetName() + " ")
-	worker.Logger.Println(text)
-}
-
-func (worker *Worker) InitLogger() {
-	err := os.Mkdir(worker.GetLogFolder(), 0755)
-	if err != nil {
-		if !os.IsExist(err) {
-			log.Fatalf("create folder error: %v", err)
-		}
-	}
-	file, err := os.OpenFile(worker.GetLog(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		log.Fatalf("open file error: %v", err)
-	}
-	worker.Logger = log.New(file, "", log.LstdFlags)
-}
-
-func (worker *Worker) Work(body *[]byte) (err error) {
-	return err
+func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
+	worker.rabbitMqConnect = rabbitMqConnect
 }

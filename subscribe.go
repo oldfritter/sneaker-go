@@ -7,9 +7,11 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, arguments amqp.Table) (err error) {
-	channel, err := RabbitMqConnect.Channel()
-	defer channel.Close()
+func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
+	channel, err := worker.GetRabbitMqConnect().Channel()
+	if err == nil {
+		defer channel.Close()
+	}
 	if err != nil {
 		log.Println("Channel: ", err)
 		return
@@ -102,13 +104,13 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, a
 		}
 	}
 	go func() {
-		channel, err := RabbitMqConnect.Channel()
+		channel1, err := worker.GetRabbitMqConnect().Channel()
 		defer channel.Close()
 		if err != nil {
 			log.Println("Channel: ", err)
 			return
 		}
-		msgs, err := channel.Consume(
+		msgs, err := channel1.Consume(
 			worker.GetQueue(),
 			worker.GetName(),
 			false,
@@ -133,12 +135,12 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, a
 					count = int(d.Headers["tryCount"].(int32))
 				}
 				if count < steps {
-					err = retry(RabbitMqConnect, worker, &d)
+					err = retry(worker, &d)
 					if err != nil {
 						log.Println("retry error: ", err)
 					}
 				} else {
-					logFailedMessageInFailedQueue(RabbitMqConnect, worker, &d.Body, &d)
+					logFailedMessageInFailedQueue(worker, &d.Body, &d)
 				}
 			}
 			d.Ack(true)
@@ -158,13 +160,15 @@ func excute(worker WorkerI, body *[]byte, exception *Exception) (err error) {
 	return
 }
 
-func retry(RabbitMqConnect *amqp.Connection, worker WorkerI, d *amqp.Delivery) (err error) {
+func retry(worker WorkerI, d *amqp.Delivery) (err error) {
 	count := 0
 	if (*d).Headers["tryCount"] != nil {
 		count = int(d.Headers["tryCount"].(int32))
 	}
-	channel, err := RabbitMqConnect.Channel()
-	defer channel.Close()
+	channel, err := worker.GetRabbitMqConnect().Channel()
+	if err == nil {
+		defer channel.Close()
+	}
 	err = channel.Publish(
 		"",
 		worker.GetRetryQueue(),
@@ -190,13 +194,15 @@ func retry(RabbitMqConnect *amqp.Connection, worker WorkerI, d *amqp.Delivery) (
 	return
 }
 
-func logFailedMessageInFailedQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, message *[]byte, d *amqp.Delivery) (err error) {
+func logFailedMessageInFailedQueue(worker WorkerI, message *[]byte, d *amqp.Delivery) (err error) {
 	count := 0
 	if (*d).Headers["tryCount"] != nil {
 		count = int((*d).Headers["tryCount"].(int32))
 	}
-	channel, err := RabbitMqConnect.Channel()
-	defer channel.Close()
+	channel, err := worker.GetRabbitMqConnect().Channel()
+	if err == nil {
+		defer channel.Close()
+	}
 	if _, err = channel.QueueDeclare(
 		worker.GetFailedQueue(),
 		true,

@@ -1,11 +1,12 @@
 package main
 
 import (
-	"io/ioutil"
+	"context"
 	"log"
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 
 	sneaker "github.com/oldfritter/sneaker-go/v3"
 	"github.com/streadway/amqp"
@@ -14,16 +15,28 @@ import (
 	"github.com/oldfritter/sneaker-go/v3/example/initializers"
 )
 
+var (
+	closeChan = make(chan int)
+)
+
 func main() {
 	initialize()
 	initializers.InitWorkers()
 
 	StartAllWorkers()
 
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
-	closeResource()
+	log.Println("Shutdown Server ...")
+	go recycle()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	select {
+	case <-closeChan:
+		cancel()
+	case <-ctx.Done():
+		cancel()
+	}
 }
 
 func initialize() {
@@ -34,22 +47,19 @@ func initialize() {
 	if err != nil {
 		log.Fatalf("create folder error: %v", err)
 	}
-	err = ioutil.WriteFile("pids/workers.pid", []byte(strconv.Itoa(os.Getpid())), 0644)
+	err = os.WriteFile("pids/workers.pid", []byte(strconv.Itoa(os.Getpid())), 0644)
 	if err != nil {
 		log.Fatalf("open file error: %v", err)
 	}
-}
-
-func closeResource() {
-	initializers.CloseAmqpConnection()
 }
 
 func StartAllWorkers() {
 	for _, w := range config.AllWorkerIs {
 		for i := 0; i < w.GetThreads(); i++ {
 			go func(w sneaker.WorkerI) {
+				w.SetRabbitMqConnect(&initializers.RabbitMqConnect)
 				w.InitLogger()
-				sneaker.SubscribeMessageByQueue(initializers.RabbitMqConnect.Connection, w, amqp.Table{})
+				sneaker.SubscribeMessageByQueue(w, amqp.Table{})
 			}(w)
 		}
 	}
@@ -67,4 +77,13 @@ func setLog() {
 		log.Fatalf("open file error: %v", err)
 	}
 	log.SetOutput(file)
+}
+
+func recycle() {
+	for i, worker := range config.AllWorkerIs {
+		worker.Stop()
+		worker.Recycle()
+		log.Println("stoped: ", worker.GetName(), "[", i, "]")
+	}
+	closeChan <- 1
 }

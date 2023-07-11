@@ -1,8 +1,8 @@
 package initializers
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -30,7 +30,7 @@ var (
 
 func InitializeAmqpConfig() {
 	path_str, _ := filepath.Abs("config/amqp.yml")
-	content, err := ioutil.ReadFile(path_str)
+	content, err := os.ReadFile(path_str)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -46,7 +46,7 @@ func InitializeAmqpConfig() {
 func InitializeAmqpConnection() {
 	var err error
 	conn, err := amqp.Dial("amqp://" + AmqpGlobalConfig.Connect.Username + ":" + AmqpGlobalConfig.Connect.Password + "@" + AmqpGlobalConfig.Connect.Host + ":" + AmqpGlobalConfig.Connect.Port + "/" + AmqpGlobalConfig.Connect.Vhost)
-	RabbitMqConnect = sneaker.RabbitMqConnect{conn}
+	RabbitMqConnect = sneaker.RabbitMqConnect{Connection: conn}
 	if err != nil {
 		time.Sleep(5000)
 		InitializeAmqpConnection()
@@ -58,9 +58,9 @@ func InitializeAmqpConnection() {
 	}()
 }
 
-func CloseAmqpConnection() {
-	RabbitMqConnect.Close()
-}
+// func CloseAmqpConnection() {
+// 	RabbitMqConnect.Close()
+// }
 
 func GetRabbitMqConnect() sneaker.RabbitMqConnect {
 	return RabbitMqConnect

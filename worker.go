@@ -136,3 +136,9 @@ func (worker *Worker) Start() {
 func (worker *Worker) Stop() {
 	worker.Ready = false
 }
+
+func (worker *Worker) Recycle() {
+	if !worker.rabbitMqConnect.IsClosed() {
+		worker.rabbitMqConnect.Close()
+	}
+}

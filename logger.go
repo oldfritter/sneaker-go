@@ -11,15 +11,15 @@ const (
 
 func (worker *Worker) LogInfo(text ...interface{}) {
 	worker.Logger.SetPrefix("INFO: " + worker.GetName() + " ")
-	worker.Logger.Println(text)
+	worker.Logger.Println(text...)
 }
 func (worker *Worker) LogDebug(text ...interface{}) {
 	worker.Logger.SetPrefix("DEBUG: " + worker.GetName() + " ")
-	worker.Logger.Println(text)
+	worker.Logger.Println(text...)
 }
 func (worker *Worker) LogError(text ...interface{}) {
 	worker.Logger.SetPrefix("ERROR: " + worker.GetName() + " ")
-	worker.Logger.Println(text)
+	worker.Logger.Println(text...)
 }
 func (worker *Worker) InitLogger() {
 	err := os.Mkdir(worker.GetLogFolder(), 0755)

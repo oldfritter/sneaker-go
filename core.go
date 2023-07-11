@@ -32,4 +32,5 @@ type WorkerI interface {
 	IsReady() bool
 	Start()
 	Stop()
+	Recycle()
 }

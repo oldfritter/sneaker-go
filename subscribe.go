@@ -105,7 +105,7 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 	}
 	go func() {
 		channel1, err := worker.GetRabbitMqConnect().Channel()
-		defer channel.Close()
+		defer channel1.Close()
 		if err != nil {
 			log.Println("Channel: ", err)
 			return

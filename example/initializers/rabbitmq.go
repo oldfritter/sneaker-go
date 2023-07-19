@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/oldfritter/sneaker-go/v3"
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"gopkg.in/yaml.v2"
 )
 

@@ -1,14 +1,15 @@
 package sneaker
 
 import (
+	"context"
 	"fmt"
 	"log"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
-	channel, err := worker.GetRabbitMqConnect().Channel()
+func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, arguments amqp.Table) (err error) {
+	channel, err := RabbitMqConnect.Channel()
 	if err == nil {
 		defer channel.Close()
 	}
@@ -105,7 +106,9 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 	}
 	go func() {
 		channel1, err := worker.GetRabbitMqConnect().Channel()
-		defer channel1.Close()
+		if err == nil {
+			defer channel1.Close()
+		}
 		if err != nil {
 			log.Println("Channel: ", err)
 			return
@@ -169,7 +172,8 @@ func retry(worker WorkerI, d *amqp.Delivery) (err error) {
 	if err == nil {
 		defer channel.Close()
 	}
-	err = channel.Publish(
+	err = channel.PublishWithContext(
+		context.Background(),
 		"",
 		worker.GetRetryQueue(),
 		false,
@@ -200,6 +204,7 @@ func logFailedMessageInFailedQueue(worker WorkerI, message *[]byte, d *amqp.Deli
 		count = int((*d).Headers["tryCount"].(int32))
 	}
 	channel, err := worker.GetRabbitMqConnect().Channel()
+
 	if err == nil {
 		defer channel.Close()
 	}
@@ -214,7 +219,8 @@ func logFailedMessageInFailedQueue(worker WorkerI, message *[]byte, d *amqp.Deli
 		log.Println("Queue ", worker.GetFailedQueue(), " declare error: ", err)
 		return
 	}
-	err = (*channel).Publish(
+	err = (*channel).PublishWithContext(
+		context.Background(),
 		"",
 		worker.GetFailedQueue(),
 		false,

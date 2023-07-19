@@ -1,10 +1,11 @@
 package sneaker
 
 import (
+	"context"
 	"fmt"
 	"log"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type RabbitMqConnect struct {
@@ -13,12 +14,15 @@ type RabbitMqConnect struct {
 
 func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, contentType string, mandatory, immediate bool, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
 	channel, err := conn.Channel()
-	defer channel.Close()
+	if err == nil {
+		defer channel.Close()
+	}
 	if err != nil {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}
-	if err = channel.Publish(
+	if err = channel.PublishWithContext(
+		context.Background(),
 		exchange,  // publish to an exchange
 		routeKey,  // routing to 0 or more queues
 		mandatory, // mandatory
@@ -42,12 +46,15 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 
 func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, mandatory, immediate bool, message *[]byte, arguments amqp.Table, deliveryMode uint8, expiration string) error {
 	channel, err := conn.Channel()
-	defer channel.Close()
+	if err == nil {
+		defer channel.Close()
+	}
 	if err != nil {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}
-	if err = channel.Publish(
+	if err = channel.PublishWithContext(
+		context.Background(),
 		"",        // publish to an exchange
 		queue,     // routing to 0 or more queues
 		mandatory, // mandatory
@@ -71,7 +78,9 @@ func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, ma
 
 func (conn *RabbitMqConnect) DeclareQueue(queueName string, durable, autoDelete, internal, noWait bool, arguments amqp.Table) error {
 	channel, err := conn.Channel()
-	defer channel.Close()
+	if err == nil {
+		defer channel.Close()
+	}
 	if err != nil {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
@@ -85,7 +94,9 @@ func (conn *RabbitMqConnect) DeclareQueue(queueName string, durable, autoDelete,
 
 func (conn *RabbitMqConnect) DeclareExchange(name, kind string, durable, autoDelete, internal, noWait bool, arguments amqp.Table) error {
 	channel, err := conn.Channel()
-	defer channel.Close()
+	if err == nil {
+		defer channel.Close()
+	}
 	if err != nil {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
@@ -99,7 +110,9 @@ func (conn *RabbitMqConnect) DeclareExchange(name, kind string, durable, autoDel
 
 func (conn *RabbitMqConnect) QueueBind(name, key, exchange string, noWait bool, arguments amqp.Table) error {
 	channel, err := conn.Channel()
-	defer channel.Close()
+	if err == nil {
+		defer channel.Close()
+	}
 	if err != nil {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)

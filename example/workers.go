@@ -9,7 +9,7 @@ import (
 	"time"
 
 	sneaker "github.com/oldfritter/sneaker-go/v3"
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/oldfritter/sneaker-go/v3/example/config"
 	"github.com/oldfritter/sneaker-go/v3/example/initializers"
@@ -59,7 +59,7 @@ func StartAllWorkers() {
 			go func(w sneaker.WorkerI) {
 				w.SetRabbitMqConnect(&initializers.RabbitMqConnect)
 				w.InitLogger()
-				sneaker.SubscribeMessageByQueue(w, amqp.Table{})
+				sneaker.SubscribeMessageByQueue(w.GetRabbitMqConnect().Connection, w, amqp.Table{})
 			}(w)
 		}
 	}

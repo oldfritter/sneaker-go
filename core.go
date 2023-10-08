@@ -1,5 +1,9 @@
 package sneaker
 
+import (
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
 type Exception struct {
 	Msg string
 }
@@ -24,10 +28,12 @@ type WorkerI interface {
 	GetSteps() []string
 	GetThreads() int
 	GetRabbitMqConnect() *RabbitMqConnect
+	SetRabbitMqConnect(*RabbitMqConnect)
+	GetChannel() *amqp.Channel
+	SetChannel(channel *amqp.Channel)
 
 	InitLogger()
 	Perform(interface{})
-	SetRabbitMqConnect(*RabbitMqConnect)
 
 	IsReady() bool
 	Start()

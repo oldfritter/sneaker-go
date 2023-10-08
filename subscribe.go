@@ -8,15 +8,16 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, arguments amqp.Table) (err error) {
-	channel, err := RabbitMqConnect.Channel()
-	if err == nil {
-		defer channel.Close()
-	}
-	if err != nil {
-		log.Println("Channel: ", err)
-		return
-	}
+func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
+	// channel, err := RabbitMqConnect.Channel()
+	// if err == nil {
+	// 	defer channel.Close()
+	// }
+	// if err != nil {
+	// 	log.Println("Channel: ", err)
+	// 	return
+	// }
+	channel := worker.GetChannel()
 	if _, err = channel.QueueDeclare(
 		worker.GetQueue(),
 		worker.GetDurable(),
@@ -105,15 +106,15 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, a
 		}
 	}
 	go func() {
-		channel1, err := worker.GetRabbitMqConnect().Channel()
-		if err == nil {
-			defer channel1.Close()
-		}
-		if err != nil {
-			log.Println("Channel: ", err)
-			return
-		}
-		msgs, err := channel1.Consume(
+		// channel1 := worker.GetChannel()
+		// if err == nil {
+		// 	defer channel1.Close()
+		// }
+		// if err != nil {
+		// 	log.Println("Channel: ", err)
+		// 	return
+		// }
+		msgs, err := channel.Consume(
 			worker.GetQueue(),
 			worker.GetName(),
 			false,
@@ -148,6 +149,7 @@ func SubscribeMessageByQueue(RabbitMqConnect *amqp.Connection, worker WorkerI, a
 			}
 			d.Ack(true)
 		}
+
 	}()
 	return
 }

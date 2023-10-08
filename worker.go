@@ -29,6 +29,7 @@ type Worker struct {
 
 	Logger          *log.Logger
 	rabbitMqConnect *RabbitMqConnect
+	channel         *amqp.Channel
 }
 
 func (worker *Worker) Work(body *[]byte) (err error) {
@@ -105,6 +106,22 @@ func (worker *Worker) GetThreads() int {
 func (worker *Worker) GetRabbitMqConnect() *RabbitMqConnect {
 	return worker.rabbitMqConnect
 }
+func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
+	worker.rabbitMqConnect = rabbitMqConnect
+}
+
+func (worker *Worker) GetChannel() *amqp.Channel {
+	if worker.channel == nil {
+		if worker.rabbitMqConnect != nil {
+			worker.channel, _ = worker.rabbitMqConnect.Channel()
+		}
+	}
+	return worker.channel
+}
+
+func (worker *Worker) SetChannel(channel *amqp.Channel) {
+	worker.channel = channel
+}
 
 func (worker *Worker) Perform(message interface{}) {
 	b, _ := json.Marshal(&message)
@@ -119,10 +136,6 @@ func (worker *Worker) Perform(message interface{}) {
 		amqp.Persistent,
 		"",
 	)
-}
-
-func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
-	worker.rabbitMqConnect = rabbitMqConnect
 }
 
 func (worker *Worker) IsReady() bool {

@@ -59,7 +59,7 @@ func StartAllWorkers() {
 			go func(w sneaker.WorkerI) {
 				w.SetRabbitMqConnect(&initializers.RabbitMqConnect)
 				w.InitLogger()
-				sneaker.SubscribeMessageByQueue(w.GetRabbitMqConnect().Connection, w, amqp.Table{})
+				sneaker.SubscribeMessageByQueue(w, amqp.Table{})
 			}(w)
 		}
 	}

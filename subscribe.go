@@ -9,14 +9,6 @@ import (
 )
 
 func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
-	// channel, err := RabbitMqConnect.Channel()
-	// if err == nil {
-	// 	defer channel.Close()
-	// }
-	// if err != nil {
-	// 	log.Println("Channel: ", err)
-	// 	return
-	// }
 	channel := worker.GetChannel()
 	if _, err = channel.QueueDeclare(
 		worker.GetQueue(),
@@ -106,14 +98,6 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 		}
 	}
 	go func() {
-		// channel1 := worker.GetChannel()
-		// if err == nil {
-		// 	defer channel1.Close()
-		// }
-		// if err != nil {
-		// 	log.Println("Channel: ", err)
-		// 	return
-		// }
 		msgs, err := channel.Consume(
 			worker.GetQueue(),
 			worker.GetName(),

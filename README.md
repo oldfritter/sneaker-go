@@ -19,7 +19,7 @@ This is a [example](https://github.com/oldfritter/sneaker-go/blob/master/example
 
 3.main
 
-[example  示例](https://github.com/oldfritter/sneaker-go/blob/master/example/workers.go)
+[example  示例](https://github.com/oldfritter/sneaker-go/blob/master/example/main.go)
 
 ### workers.yml配置说明
 ```

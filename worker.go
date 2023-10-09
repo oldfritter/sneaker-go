@@ -111,7 +111,7 @@ func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
 }
 
 func (worker *Worker) GetChannel() *amqp.Channel {
-	if worker.channel == nil || worker.channel.IsClosed() {
+	if worker.channel == nil || worker.IsChannelClosed() {
 		if worker.rabbitMqConnect != nil {
 			worker.channel, _ = worker.rabbitMqConnect.Channel()
 		}
@@ -136,6 +136,10 @@ func (worker *Worker) Perform(message interface{}) {
 		amqp.Persistent,
 		"",
 	)
+}
+
+func (worker *Worker) IsChannelClosed() bool {
+	return worker.channel.IsClosed()
 }
 
 func (worker *Worker) IsReady() bool {

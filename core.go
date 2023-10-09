@@ -35,6 +35,7 @@ type WorkerI interface {
 	InitLogger()
 	Perform(interface{})
 
+	IsChannelClosed() bool
 	IsReady() bool
 	Start()
 	Stop()

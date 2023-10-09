@@ -22,7 +22,27 @@ var (
 func main() {
 	initialize()
 	initializers.InitWorkers()
-
+	go func() {
+		t := time.NewTimer(time.Second * 30)
+		for {
+			<-t.C
+			if initializers.IsAmqpConnectionClosed() {
+				initializers.InitializeAmqpConnection()
+				StartAllWorkers()
+			} else {
+				for _, worker := range config.AllWorkerIs {
+					if worker.IsChannelClosed() {
+						worker.GetChannel()
+						sneaker.SubscribeMessageByQueue(
+							worker,
+							amqp.Table{},
+						)
+					}
+				}
+			}
+			t.Reset(time.Second * 30)
+		}
+	}()
 	StartAllWorkers()
 
 	quit := make(chan os.Signal, 1)

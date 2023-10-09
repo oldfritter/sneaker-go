@@ -58,9 +58,13 @@ func InitializeAmqpConnection() {
 	}()
 }
 
-// func CloseAmqpConnection() {
-// 	RabbitMqConnect.Close()
-// }
+func IsAmqpConnectionClosed() bool {
+	return RabbitMqConnect.IsClosed()
+}
+
+func CloseAmqpConnection() {
+	RabbitMqConnect.Close()
+}
 
 func GetRabbitMqConnect() sneaker.RabbitMqConnect {
 	return RabbitMqConnect

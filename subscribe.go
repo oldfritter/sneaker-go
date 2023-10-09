@@ -10,6 +10,7 @@ import (
 
 func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 	channel := worker.GetChannel()
+	defer channel.Close()
 	if _, err = channel.QueueDeclare(
 		worker.GetQueue(),
 		worker.GetDurable(),

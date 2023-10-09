@@ -111,7 +111,7 @@ func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
 }
 
 func (worker *Worker) GetChannel() *amqp.Channel {
-	if worker.channel == nil {
+	if worker.channel == nil || worker.channel.IsClosed() {
 		if worker.rabbitMqConnect != nil {
 			worker.channel, _ = worker.rabbitMqConnect.Channel()
 		}

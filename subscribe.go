@@ -44,43 +44,6 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 			log.Println("Queue ", worker.GetQueue(), " bind error: ", err)
 			return
 		}
-		if len(worker.GetSteps()) > 0 {
-			if err = channel.ExchangeDeclare(
-				worker.GetRetryExchange(),
-				"topic",
-				worker.GetDurable(),
-				false,
-				false,
-				false,
-				nil,
-			); err != nil {
-				log.Println("Exchange ", worker.GetRetryExchange(), " declare error: ", err)
-				return
-			}
-			if err = channel.QueueBind(
-				worker.GetQueue(),
-				"#",
-				worker.GetRetryExchange(),
-				false,
-				nil,
-			); err != nil {
-				log.Println("Queue ", worker.GetQueue(), " bind error: ", err)
-				return
-			}
-			if _, err = channel.QueueDeclare(
-				worker.GetRetryQueue(),
-				worker.GetDurable(),
-				false,
-				false,
-				false,
-				amqp.Table{
-					"x-dead-letter-exchange": worker.GetRetryExchange(),
-				},
-			); err != nil {
-				log.Println("Queue ", worker.GetRetryQueue()+" declare error: ", err)
-				return
-			}
-		}
 	}
 	if worker.GetDelay() {
 		if _, err = channel.QueueDeclare(
@@ -118,15 +81,8 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 				if exception.Msg == "" {
 					d.Headers["err"] = err
 				}
-				count, steps := 0, len(worker.GetSteps())
-				if d.Headers["tryCount"] != nil {
-					count = int(d.Headers["tryCount"].(int32))
-				}
-				if count < steps {
-					err = retry(worker, &d)
-					if err != nil {
-						log.Println("retry error: ", err)
-					}
+				if err = retry(worker, &d); err != nil {
+					log.Println("retry error: ", err)
 				} else {
 					logFailedMessageInFailedQueue(worker, &d.Body, &d)
 				}
@@ -150,10 +106,6 @@ func excute(worker WorkerI, body *[]byte, exception *Exception) (err error) {
 }
 
 func retry(worker WorkerI, d *amqp.Delivery) (err error) {
-	count := 0
-	if (*d).Headers["tryCount"] != nil {
-		count = int(d.Headers["tryCount"].(int32))
-	}
 	channel, err := worker.GetRabbitMqConnect().Channel()
 	if err == nil {
 		defer channel.Close()
@@ -165,16 +117,10 @@ func retry(worker WorkerI, d *amqp.Delivery) (err error) {
 		false,
 		false,
 		amqp.Publishing{
-			Headers: amqp.Table{
-				"err":      d.Headers["err"],
-				"tryCount": count + 1,
-			},
-			ContentType:     "application/json",
-			ContentEncoding: "",
-			Body:            d.Body,
-			DeliveryMode:    amqp.Persistent,
-			Priority:        0,
-			Expiration:      worker.GetSteps()[count+1],
+			ContentType:  "application/json",
+			Body:         d.Body,
+			DeliveryMode: amqp.Persistent,
+			Priority:     0,
 		},
 	)
 	if err != nil {
@@ -185,12 +131,7 @@ func retry(worker WorkerI, d *amqp.Delivery) (err error) {
 }
 
 func logFailedMessageInFailedQueue(worker WorkerI, message *[]byte, d *amqp.Delivery) (err error) {
-	count := 0
-	if (*d).Headers["tryCount"] != nil {
-		count = int((*d).Headers["tryCount"].(int32))
-	}
 	channel, err := worker.GetRabbitMqConnect().Channel()
-
 	if err == nil {
 		defer channel.Close()
 	}
@@ -212,15 +153,10 @@ func logFailedMessageInFailedQueue(worker WorkerI, message *[]byte, d *amqp.Deli
 		false,
 		false,
 		amqp.Publishing{
-			Headers: amqp.Table{
-				"tryCount": count,
-				"err":      (*d).Headers["err"],
-			},
-			ContentType:     "application/json",
-			ContentEncoding: "",
-			Body:            *message,
-			DeliveryMode:    amqp.Persistent,
-			Priority:        0,
+			ContentType:  "application/json",
+			Body:         *message,
+			DeliveryMode: amqp.Persistent,
+			Priority:     0,
 		},
 	)
 	if err != nil {

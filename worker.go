@@ -23,7 +23,6 @@ type Worker struct {
 	Delay        bool              `yaml:"delay"`
 	Options      map[string]string `yaml:"options"`
 	Arguments    map[string]string `yaml:"arguments"`
-	Steps        []string          `yaml:"steps"`
 	Threads      int               `yaml:"threads"`
 	Ready        bool
 
@@ -96,9 +95,6 @@ func (worker *Worker) GetOptions() map[string]string {
 }
 func (worker *Worker) GetArguments() map[string]string {
 	return worker.Arguments
-}
-func (worker *Worker) GetSteps() []string {
-	return worker.Steps
 }
 func (worker *Worker) GetThreads() int {
 	return worker.Threads

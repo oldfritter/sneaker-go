@@ -25,7 +25,6 @@ type WorkerI interface {
 	GetDelay() bool
 	GetOptions() map[string]string
 	GetArguments() map[string]string
-	GetSteps() []string
 	GetThreads() int
 	GetRabbitMqConnect() *RabbitMqConnect
 	SetRabbitMqConnect(*RabbitMqConnect)

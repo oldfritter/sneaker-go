@@ -77,10 +77,6 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 			exception := Exception{}
 			err := excute(worker, &d.Body, &exception)
 			if exception.Msg != "" || err != nil {
-				d.Headers["err"] = exception.Msg
-				if exception.Msg == "" {
-					d.Headers["err"] = err
-				}
 				if err = retry(worker, &d); err != nil {
 					log.Println("retry error: ", err)
 				} else {

@@ -76,7 +76,7 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 		for d := range msgs {
 			exception := Exception{}
 			err := excute(worker, &d.Body, &exception)
-			if exception.Msg != "" || err != nil {
+			if exception.Msg == "" && err == nil {
 				d.Ack(true)
 			}
 		}

@@ -45,21 +45,6 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 			return
 		}
 	}
-	if worker.GetDelay() {
-		if _, err = channel.QueueDeclare(
-			worker.GetDelayQueue(),
-			worker.GetDurable(),
-			false,
-			false,
-			false,
-			amqp.Table{
-				"x-dead-letter-exchange": worker.GetRetryExchange(),
-			},
-		); err != nil {
-			log.Println("Queue ", worker.GetDelayQueue()+" declare error : ", err)
-			return
-		}
-	}
 	go func() {
 		msgs, err := channel.Consume(
 			worker.GetQueue(),
@@ -76,9 +61,10 @@ func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 		for d := range msgs {
 			exception := Exception{}
 			err := excute(worker, &d.Body, &exception)
-			if exception.Msg == "" && err == nil {
-				d.Ack(true)
+			if exception.Msg != "" || err != nil {
+				worker.Retry(&d)
 			}
+			d.Ack(true)
 		}
 	}()
 	return
@@ -92,66 +78,5 @@ func excute(worker WorkerI, body *[]byte, exception *Exception) (err error) {
 		}
 	}(exception)
 	err = worker.Work(body)
-	return
-}
-
-func retry(worker WorkerI, d *amqp.Delivery) (err error) {
-	channel, err := worker.GetRabbitMqConnect().Channel()
-	if err == nil {
-		defer channel.Close()
-	}
-	err = channel.PublishWithContext(
-		context.Background(),
-		"",
-		worker.GetRetryQueue(),
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			Body:         d.Body,
-			DeliveryMode: amqp.Persistent,
-			Priority:     0,
-		},
-	)
-	if err != nil {
-		log.Println("Publish error: ", err)
-		return
-	}
-	return
-}
-
-func logFailedMessageInFailedQueue(worker WorkerI, message *[]byte, d *amqp.Delivery) (err error) {
-	channel, err := worker.GetRabbitMqConnect().Channel()
-	if err == nil {
-		defer channel.Close()
-	}
-	if _, err = channel.QueueDeclare(
-		worker.GetFailedQueue(),
-		true,
-		false,
-		false,
-		false,
-		amqp.Table{},
-	); err != nil {
-		log.Println("Queue ", worker.GetFailedQueue(), " declare error: ", err)
-		return
-	}
-	err = (*channel).PublishWithContext(
-		context.Background(),
-		"",
-		worker.GetFailedQueue(),
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			Body:         *message,
-			DeliveryMode: amqp.Persistent,
-			Priority:     0,
-		},
-	)
-	if err != nil {
-		log.Println("Publish error: ", err)
-		return
-	}
 	return
 }

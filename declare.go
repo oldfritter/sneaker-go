@@ -16,8 +16,7 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 	channel, err := conn.Channel()
 	if err == nil {
 		defer channel.Close()
-	}
-	if err != nil {
+	} else {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}
@@ -39,7 +38,7 @@ func (conn *RabbitMqConnect) PublishMessageWithRouteKey(exchange, routeKey, cont
 		},
 	); err != nil {
 		log.Fatal(err)
-		return fmt.Errorf("Queue Publish: %s", err)
+		return fmt.Errorf("Exchange Publish: %s", err)
 	}
 	return nil
 }
@@ -48,8 +47,7 @@ func (conn *RabbitMqConnect) PublishMessageToQueue(queue, contentType string, ma
 	channel, err := conn.Channel()
 	if err == nil {
 		defer channel.Close()
-	}
-	if err != nil {
+	} else {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}
@@ -80,8 +78,7 @@ func (conn *RabbitMqConnect) DeclareQueue(queueName string, durable, autoDelete,
 	channel, err := conn.Channel()
 	if err == nil {
 		defer channel.Close()
-	}
-	if err != nil {
+	} else {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}
@@ -96,8 +93,7 @@ func (conn *RabbitMqConnect) DeclareExchange(name, kind string, durable, autoDel
 	channel, err := conn.Channel()
 	if err == nil {
 		defer channel.Close()
-	}
-	if err != nil {
+	} else {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}
@@ -112,8 +108,7 @@ func (conn *RabbitMqConnect) QueueBind(name, key, exchange string, noWait bool, 
 	channel, err := conn.Channel()
 	if err == nil {
 		defer channel.Close()
-	}
-	if err != nil {
+	} else {
 		log.Fatal(err)
 		return fmt.Errorf("Channel: %s", err)
 	}

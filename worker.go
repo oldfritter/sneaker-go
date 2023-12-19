@@ -1,7 +1,9 @@
 package sneaker
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -15,17 +17,13 @@ type Worker struct {
 	ExchangeType string            `yaml:"exchange_type"`
 	RoutingKey   string            `yaml:"routing_key"`
 	Queue        string            `yaml:"queue"`
-	DelayQueue   string            `yaml:"delay_queue"`
-	RetryQueue   string            `yaml:"retry_queue"`
-	FailedQueue  string            `yaml:"failed_queue"`
 	Log          string            `yaml:"log"`
 	Durable      bool              `yaml:"durable"`
-	Delay        bool              `yaml:"delay"`
 	Options      map[string]string `yaml:"options"`
 	Arguments    map[string]string `yaml:"arguments"`
 	Threads      int               `yaml:"threads"`
-	Ready        bool
 
+	Ready           bool
 	Logger          *log.Logger
 	rabbitMqConnect *RabbitMqConnect
 	channel         *amqp.Channel
@@ -38,70 +36,70 @@ func (worker *Worker) Work(body *[]byte) (err error) {
 func (worker *Worker) GetName() string {
 	return worker.Name
 }
+
 func (worker *Worker) GetExchange() string {
 	return worker.Exchange
 }
-func (worker *Worker) GetRetryExchange() string {
-	return worker.Queue + ".retry"
-}
+
 func (worker *Worker) GetExchangeType() string {
 	if worker.ExchangeType == "" {
 		worker.ExchangeType = "topic"
 	}
 	return worker.ExchangeType
 }
+
 func (worker *Worker) GetRoutingKey() string {
 	return worker.RoutingKey
 }
+
 func (worker *Worker) GetQueue() string {
 	return worker.Queue
 }
+
 func (worker *Worker) GetDelayQueue() string {
-	if worker.DelayQueue != "" {
-		return worker.DelayQueue
-	}
-	return worker.Queue + ".delay"
+	return fmt.Sprintf("%s.delay", worker.Queue)
 }
+
 func (worker *Worker) GetRetryQueue() string {
-	if worker.RetryQueue != "" {
-		return worker.RetryQueue
-	}
-	return worker.Queue + ".retry"
+	return fmt.Sprintf("%s.retry", worker.Queue)
 }
+
 func (worker *Worker) GetFailedQueue() string {
-	if worker.FailedQueue != "" {
-		return worker.FailedQueue
-	}
-	return worker.Queue + ".failed"
+	return fmt.Sprintf("%s.failed", worker.Queue)
 }
+
 func (worker *Worker) GetLog() string {
 	if worker.Log != "" {
 		return worker.Log
 	}
 	return DefaultLog
 }
+
 func (worker *Worker) GetLogFolder() string {
 	re := regexp.MustCompile(`\/.*\.log$`)
 	return strings.TrimSuffix(worker.GetLog(), re.FindString(worker.GetLog()))
 }
+
 func (worker *Worker) GetDurable() bool {
 	return worker.Durable
 }
-func (worker *Worker) GetDelay() bool {
-	return worker.Delay
-}
+
 func (worker *Worker) GetOptions() map[string]string {
 	return worker.Options
 }
+
 func (worker *Worker) GetArguments() map[string]string {
 	return worker.Arguments
 }
+
 func (worker *Worker) GetThreads() int {
 	return worker.Threads
 }
+
 func (worker *Worker) GetRabbitMqConnect() *RabbitMqConnect {
 	return worker.rabbitMqConnect
 }
+
 func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
 	worker.rabbitMqConnect = rabbitMqConnect
 }
@@ -154,4 +152,45 @@ func (worker *Worker) Recycle() {
 	if !worker.rabbitMqConnect.IsClosed() {
 		worker.rabbitMqConnect.Close()
 	}
+}
+
+func (worker *Worker) Retry(d *amqp.Delivery) (err error) {
+	channel, err := worker.GetRabbitMqConnect().Channel()
+	if err == nil {
+		defer channel.Close()
+	}
+	if err = channel.ExchangeDeclare(
+		worker.GetRetryQueue(),
+		worker.GetExchangeType(),
+		worker.GetDurable(),
+		false,
+		false,
+		true,
+		amqp.Table{
+			"x-dead-letter-exchange":    worker.GetExchange(),
+			"x-dead-letter-routing-key": worker.GetRoutingKey(),
+		},
+	); err != nil {
+		log.Println("Exchange Declare error: ", err)
+	}
+
+	err = channel.PublishWithContext(
+		context.Background(),
+		"",
+		worker.GetRetryQueue(),
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			Body:         d.Body,
+			DeliveryMode: amqp.Persistent,
+			Priority:     0,
+			Expiration:   "10000",
+		},
+	)
+	if err != nil {
+		log.Println("Publish error: ", err)
+		return
+	}
+	return
 }

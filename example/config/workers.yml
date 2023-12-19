@@ -5,9 +5,4 @@
   queue: sneaker.example.treat			# 消息进入的queue
   log: logs/treat_worker.log			# 日志
   durable: true
-  delay: true             # 是否支持延时任务
   threads: 3							# 并发处理数量
-  steps:								# 重试队列的延时配置
-    - 5000       # 5 Second
-    - 30000      # 30 Second
-    - 60000      # 1 Minute

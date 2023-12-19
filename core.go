@@ -12,7 +12,6 @@ type WorkerI interface {
 	Work(*[]byte) error
 	GetName() string
 	GetExchange() string
-	GetRetryExchange() string
 	GetExchangeType() string
 	GetRoutingKey() string
 	GetQueue() string
@@ -22,7 +21,6 @@ type WorkerI interface {
 	GetLog() string
 	GetLogFolder() string
 	GetDurable() bool
-	GetDelay() bool
 	GetOptions() map[string]string
 	GetArguments() map[string]string
 	GetThreads() int
@@ -33,6 +31,7 @@ type WorkerI interface {
 
 	InitLogger()
 	Perform(interface{})
+	Retry(d *amqp.Delivery) (err error)
 
 	IsChannelClosed() bool
 	IsReady() bool

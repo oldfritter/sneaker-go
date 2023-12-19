@@ -1,7 +1,6 @@
 package sneaker
 
 import (
-	"context"
 	"fmt"
 	"log"
 

@@ -1,6 +1,6 @@
 connect:
   host: 127.0.0.1
-  port: 5672
+  port: "5672"        # 省略时默认 5672，需保持字符串
   username: guest
   password: guest
-  vhost: / # 注：为了不与其它项目冲突，使用vhost /sneaker-go，如果您不熟悉可以改为 /
+  vhost: /            # 默认 vhost；如使用独立 vhost，先创建后改为 /sneaker-go

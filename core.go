@@ -36,10 +36,10 @@ type WorkerI interface {
 	// Acknowledgement policy. AckEnabled decides whether a processed message is
 	// acknowledged, RequeueEnabled whether an unprocessed message is requeued
 	// when the retry topology is unavailable, RetryEnabled whether a failed
-	// message uses the retry topology. AckMultiple reports the configured request
-	// for a cumulative ack, which the sink only honours while a single goroutine
-	// settles the channel. PrefetchCount, RetryTTL and MaxRetry shape the
-	// consumer window, the retry queue wait and the retry budget.
+	// message uses the retry topology. AckMultiple reports the configured
+	// compatibility option; the sink always settles one delivery at a time.
+	// PrefetchCount, RetryTTL and MaxRetry shape the consumer window, the retry
+	// queue wait and the retry budget.
 	AckEnabled() bool
 	RequeueEnabled() bool
 	RetryEnabled() bool
@@ -63,6 +63,7 @@ type WorkerI interface {
 // queue name, so the tag cannot be the queue name alone.
 var consumerSequence uint64
 
+// atomicNextConsumerSequence 返回下一个全局唯一的消费者序号。
 func atomicNextConsumerSequence() uint64 {
 	return atomic.AddUint64(&consumerSequence, 1)
 }

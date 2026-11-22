@@ -1,71 +1,57 @@
 package initializers
 
 import (
-	"log"
-	"os"
-	"path/filepath"
-	"time"
+	"fmt"
 
 	"github.com/oldfritter/sneaker-go/v3"
+	"github.com/oldfritter/sneaker-go/v3/example/config"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"gopkg.in/yaml.v2"
 )
-
-type Amqp struct {
-	Connect struct {
-		Host     string `yaml:"host"`
-		Port     string `yaml:"port"`
-		Username string `yaml:"username"`
-		Password string `yaml:"password"`
-		Vhost    string `yaml:"vhost"`
-	} `yaml:"connect"`
-
-	Exchange map[string]map[string]string `yaml:"exchange"`
-}
 
 var (
-	AmqpGlobalConfig Amqp
-	RabbitMqConnect  sneaker.RabbitMqConnect
+	AmqpGlobalConfig config.Amqp
+	RabbitMqConnect  *sneaker.RabbitMqConnect
+	dialAMQP         = amqp.Dial
 )
 
-func InitializeAmqpConfig() {
-	path_str, _ := filepath.Abs("config/amqp.yml")
-	content, err := os.ReadFile(path_str)
+// InitializeAmqpConfig 从指定路径加载 RabbitMQ 配置。
+func InitializeAmqpConfig(path string) error {
+	cfg, err := config.LoadAmqp(path)
 	if err != nil {
-		log.Fatal(err)
-		return
+		return err
 	}
-	err = yaml.Unmarshal(content, &AmqpGlobalConfig)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	InitializeAmqpConnection()
+	AmqpGlobalConfig = cfg
+	return nil
 }
 
-func InitializeAmqpConnection() {
-	var err error
-	conn, err := amqp.Dial("amqp://" + AmqpGlobalConfig.Connect.Username + ":" + AmqpGlobalConfig.Connect.Password + "@" + AmqpGlobalConfig.Connect.Host + ":" + AmqpGlobalConfig.Connect.Port + "/" + AmqpGlobalConfig.Connect.Vhost)
-	RabbitMqConnect = sneaker.RabbitMqConnect{Connection: conn}
+// InitializeAmqpConnection 建立并替换当前 RabbitMQ 连接。
+func InitializeAmqpConnection() error {
+	uri, err := AmqpGlobalConfig.URL()
 	if err != nil {
-		time.Sleep(5000)
-		InitializeAmqpConnection()
-		return
+		return err
 	}
-	go func() {
-		<-RabbitMqConnect.NotifyClose(make(chan *amqp.Error))
-		InitializeAmqpConnection()
-	}()
+	conn, err := dialAMQP(uri)
+	if err != nil {
+		return fmt.Errorf("dial rabbitmq: %w", err)
+	}
+	RabbitMqConnect = &sneaker.RabbitMqConnect{Connection: conn}
+	return nil
 }
 
+// IsAmqpConnectionClosed 返回当前连接是否为空或已关闭。
 func IsAmqpConnectionClosed() bool {
-	return RabbitMqConnect.IsClosed()
+	return RabbitMqConnect == nil || RabbitMqConnect.IsClosed()
 }
 
+// CloseAmqpConnection 关闭当前连接并清空全局引用。
 func CloseAmqpConnection() {
-	RabbitMqConnect.Close()
+	if RabbitMqConnect != nil {
+		_ = RabbitMqConnect.Close()
+		RabbitMqConnect = nil
+	}
 }
 
-func GetRabbitMqConnect() sneaker.RabbitMqConnect {
+// GetRabbitMqConnect 返回当前 RabbitMQ 连接。
+func GetRabbitMqConnect() *sneaker.RabbitMqConnect {
 	return RabbitMqConnect
 }

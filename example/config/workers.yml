@@ -1,19 +1,21 @@
 ---
-- name: TreatWorker						# worker的名称
-  exchange: sneaker.example.default		# 消息经过的Exchange
-  routing_key: sneaker.example.treat	# 消息经过的routing_key
-  queue: sneaker.example.treat			# 消息进入的queue
-  log: logs/treat_worker.log			# 日志
+# 示例只注册 name: TreatWorker；其它名称会被配置校验保留，但不会启动。
+- name: TreatWorker                    # worker 名称，必须与代码中的实现匹配
+  exchange: sneaker.example.default    # 消息经过的 Exchange
+  exchange_type: topic                 # 默认 topic
+  routing_key: sneaker.example.treat   # 消息经过的 routing_key
+  queue: sneaker.example.treat         # 消息进入的 queue
+  log: logs/treat_worker.log           # 相对启动目录；会自动创建父目录
   durable: true
-  threads: 3							# 并发处理数量
-  steps:                            # 每次重试的累计等待时间，未配置时失败消息直接进入 .failed
-    - 5000       # 首次重试前等待 5 Second
-    - 30000      # 第二次重试前累计等待 30 Second
-    - 60000      # 第三次重试前累计等待 1 Minute
-  options:                          # 可选配置
-    ack: "true"                     # 处理成功后是否ack，false则交给RabbitMQ重新投递
-    retry: "true"                   # 处理失败是否进入重试队列
-    retry_ttl: 2m                   # .retry队列TTL，被拒绝消息进入重试链前的等待时间
-    max_retry: "3"                  # 重试次数上限，默认为steps的档数
-    requeue: "true"                 # 无法进入重试队列时是否requeue
-    prefetch: "1"                   # 每个消费者的未ack上限
+  threads: 3                           # 每个 worker 启动的消费者数量；0 按 1 处理
+  steps:                               # 每次重试的累计等待时间，未配置时失败消息直接进入 .failed
+    - 5000                             # 首次重试前等待 5 秒
+    - 30000                            # 第二次重试前累计等待 30 秒
+    - 60000                            # 第三次重试前累计等待 1 分钟
+  options:                             # 可选配置
+    ack: "true"                        # 处理成功后是否 ack，false 则交给 RabbitMQ 重新投递
+    retry: "true"                      # 处理失败是否进入重试队列
+    retry_ttl: 2m                      # .retry 队列 TTL，被拒绝消息进入重试链前的等待时间
+    max_retry: "3"                     # 重试次数上限，默认为 steps 的档数
+    requeue: "true"                    # 无法进入重试队列时是否 requeue
+    prefetch: "1"                      # 每个消费者的未 ack 上限

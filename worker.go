@@ -2,15 +2,20 @@ package sneaker
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
-	"regexp"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+// workerStateMu serializes the connection and channel pointers of a Worker.
+// They are replaced during startup and recovery, and a per-Worker mutex would
+// make Worker unsafe to copy after use.
+var workerStateMu sync.Mutex
 
 const (
 	// defaultRetryTTL is the TTL of the retry queue, the safety net a message
@@ -45,45 +50,55 @@ type Worker struct {
 	channel         *amqp.Channel
 }
 
+// Work 是默认的空实现，具体 worker 应覆盖此方法处理消息。
 func (worker *Worker) Work(body *[]byte) (err error) {
 	return err
 }
 
+// GetName 返回 worker 名称。
 func (worker *Worker) GetName() string {
 	return worker.Name
 }
 
+// GetExchange 返回绑定的 Exchange 名称。
 func (worker *Worker) GetExchange() string {
 	return worker.Exchange
 }
 
+// GetExchangeType 返回 Exchange 类型，未配置时默认为 topic。
 func (worker *Worker) GetExchangeType() string {
 	if worker.ExchangeType == "" {
-		worker.ExchangeType = "topic"
+		return "topic"
 	}
 	return worker.ExchangeType
 }
 
+// GetRoutingKey 返回队列绑定的 routing key。
 func (worker *Worker) GetRoutingKey() string {
 	return worker.RoutingKey
 }
 
+// GetQueue 返回 worker 消费的队列名称。
 func (worker *Worker) GetQueue() string {
 	return worker.Queue
 }
 
+// GetDelayQueue 返回延迟队列名称。
 func (worker *Worker) GetDelayQueue() string {
-	return fmt.Sprintf("%s.delay", worker.Queue)
+	return worker.Queue + ".delay"
 }
 
+// GetRetryQueue 返回重试队列名称。
 func (worker *Worker) GetRetryQueue() string {
-	return fmt.Sprintf("%s.retry", worker.Queue)
+	return worker.Queue + ".retry"
 }
 
+// GetFailedQueue 返回失败队列名称。
 func (worker *Worker) GetFailedQueue() string {
-	return fmt.Sprintf("%s.failed", worker.Queue)
+	return worker.Queue + ".failed"
 }
 
+// GetLog 返回日志文件路径，未配置时使用默认路径。
 func (worker *Worker) GetLog() string {
 	if worker.Log != "" {
 		return worker.Log
@@ -91,41 +106,57 @@ func (worker *Worker) GetLog() string {
 	return DefaultLog
 }
 
+// GetLogFolder 返回日志文件所在目录。
 func (worker *Worker) GetLogFolder() string {
-	re := regexp.MustCompile(`\/.*\.log$`)
-	return strings.TrimSuffix(worker.GetLog(), re.FindString(worker.GetLog()))
+	return filepath.Dir(worker.GetLog())
 }
 
+// GetDurable 返回队列和 Exchange 是否持久化。
 func (worker *Worker) GetDurable() bool {
 	return worker.Durable
 }
 
+// GetOptions 返回 worker 的字符串配置项。
 func (worker *Worker) GetOptions() map[string]string {
 	return worker.Options
 }
 
-// Option reads a string option. Every option can be set in workers.yml under
-// `options:` or as a plain field of the worker, and `<name>.<option>` overrides
-// `<option>` for a single worker.
+// Option 读取字符串配置项；<worker>.<option> 优先于全局 <option>。
 func (worker *Worker) Option(name string) (string, bool) {
-	for _, key := range []string{worker.GetName() + "." + name, name} {
-		if value, ok := worker.GetOptions()[key]; ok {
+	options := worker.GetOptions()
+	if len(options) == 0 {
+		return "", false
+	}
+	if workerName := worker.GetName(); workerName != "" {
+		if value, ok := options[workerName+"."+name]; ok {
 			return value, true
 		}
 	}
-	return "", false
+	value, ok := options[name]
+	return value, ok
 }
 
-// OptionInt reads an integer option, ignoring a unit suffix such as `3s`.
+// OptionInt 读取整数配置项，并允许 s、ms 之类的单位后缀。
 func (worker *Worker) OptionInt(name string) (int, bool) {
 	value, ok := worker.Option(name)
 	if !ok {
 		return 0, false
 	}
-	digits := strings.TrimRightFunc(value, func(r rune) bool {
+	value = strings.TrimSpace(value)
+	digits := value
+	if index := strings.IndexFunc(value, func(r rune) bool {
 		return r < '0' || r > '9'
-	})
-	if digits == "" || digits[0] == '-' {
+	}); index >= 0 {
+		suffix := value[index:]
+		// A unit suffix such as `s` or `ms` is fine; a sign, a decimal point or
+		// another digit means this is not the integer option the caller asked
+		// for.
+		if strings.ContainsAny(suffix, ".+-0123456789") {
+			return 0, false
+		}
+		digits = value[:index]
+	}
+	if digits == "" {
 		return 0, false
 	}
 	number, err := strconv.Atoi(digits)
@@ -135,9 +166,7 @@ func (worker *Worker) OptionInt(name string) (int, bool) {
 	return number, true
 }
 
-// OptionDuration reads a duration option. A bare number is milliseconds, the
-// unit of the historical `steps` configuration, so `3` and `3000` are
-// different values.
+// OptionDuration 读取时长配置项；纯数字按毫秒解析。
 func (worker *Worker) OptionDuration(name string) (time.Duration, bool) {
 	value, ok := worker.Option(name)
 	if !ok {
@@ -146,6 +175,7 @@ func (worker *Worker) OptionDuration(name string) (time.Duration, bool) {
 	return parseDuration(value)
 }
 
+// parseDuration 解析时长字符串，纯数字按毫秒处理。
 func parseDuration(value string) (time.Duration, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -165,6 +195,7 @@ func parseDuration(value string) (time.Duration, bool) {
 	return 0, false
 }
 
+// booleanOption 读取布尔配置项，解析失败时返回默认值。
 func (worker *Worker) booleanOption(name string, fallback bool) bool {
 	value, ok := worker.Option(name)
 	if !ok {
@@ -176,37 +207,27 @@ func (worker *Worker) booleanOption(name string, fallback bool) bool {
 	return fallback
 }
 
-// AckEnabled reports whether a processed message may be acknowledged. Default
-// true, the historical behaviour; `ack: false` leaves a processed message
-// unacknowledged, so RabbitMQ redelivers it after the consumer stops.
+// AckEnabled 返回处理成功后是否 ack，默认 true。
 func (worker *Worker) AckEnabled() bool {
 	return worker.booleanOption("ack", true)
 }
 
-// RequeueEnabled reports whether an unprocessed message is requeued for
-// redelivery when the retry topology is unavailable or the retry publish
-// failed. Default true, because a message that is neither acknowledged nor
-// requeued is withheld by the server until the consumer goes away.
+// RequeueEnabled 返回无法重试时是否 requeue，默认 true。
 func (worker *Worker) RequeueEnabled() bool {
 	return worker.booleanOption("requeue", true)
 }
 
-// RetryEnabled reports whether a failed message is moved to the retry topology
-// instead of being requeued to the worker queue.
+// RetryEnabled 返回失败消息是否进入重试拓扑，默认 true。
 func (worker *Worker) RetryEnabled() bool {
 	return worker.booleanOption("retry", true)
 }
 
-// AckMultiple reports whether an ack covers every outstanding delivery of the
-// consumer channel. It is only safe while one goroutine consumes the channel,
-// so it defaults to false.
+// AckMultiple 返回兼容配置项；实现始终单条 ack。
 func (worker *Worker) AckMultiple() bool {
 	return worker.booleanOption("ack_multiple", false)
 }
 
-// PrefetchCount is the consumer prefetch, the cap of unacknowledged messages
-// one consumer channel holds. `prefetch: 1` gives a strict one message per
-// consumer behaviour.
+// PrefetchCount 返回每个消费者的未 ack 上限。
 func (worker *Worker) PrefetchCount() int {
 	if count, ok := worker.OptionInt("prefetch"); ok && count >= 0 {
 		return count
@@ -214,9 +235,7 @@ func (worker *Worker) PrefetchCount() int {
 	return defaultPrefetch
 }
 
-// RetryTTL is the TTL of the retry queue, the safety net a rejected message is
-// dead lettered into. Unlike the stage queues, this wait is a whole hop of its
-// own, so it is configured with `retry_ttl`, for example `2m` or `120000`.
+// RetryTTL 返回 .retry 队列的 TTL。
 func (worker *Worker) RetryTTL() time.Duration {
 	if ttl, ok := worker.OptionDuration("retry_ttl"); ok && ttl > 0 {
 		return ttl
@@ -224,9 +243,7 @@ func (worker *Worker) RetryTTL() time.Duration {
 	return defaultRetryTTL
 }
 
-// MaxRetry is the retry budget. A worker with retry steps keeps its historical
-// budget, the length of the step list; a worker without steps retries
-// defaultMaxRetry times. `max_retry` overrides both.
+// MaxRetry 返回失败消息进入 .failed 前的最大重试次数。
 func (worker *Worker) MaxRetry() int {
 	if maximum, ok := worker.OptionInt("max_retry"); ok && maximum >= 0 {
 		return maximum
@@ -237,75 +254,124 @@ func (worker *Worker) MaxRetry() int {
 	return defaultMaxRetry
 }
 
+// GetArguments 返回队列声明参数。
 func (worker *Worker) GetArguments() map[string]string {
 	return worker.Arguments
 }
 
-// GetSteps returns the retry step delays. Only the delay of every step is
-// used: a rejected message redelivers through the retry topology and is never
-// published again, see buildTopology in subscribe.go.
+// GetSteps 返回重试步骤的累计等待时间。
 func (worker *Worker) GetSteps() []string {
 	return worker.Steps
 }
 
+// GetThreads 返回调用方应启动的消费者数量。
 func (worker *Worker) GetThreads() int {
 	return worker.Threads
 }
 
+// GetRabbitMqConnect 返回当前 RabbitMQ 连接。
 func (worker *Worker) GetRabbitMqConnect() *RabbitMqConnect {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	return worker.rabbitMqConnect
 }
 
+// SetRabbitMqConnect 替换当前 RabbitMQ 连接。
 func (worker *Worker) SetRabbitMqConnect(rabbitMqConnect *RabbitMqConnect) {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	worker.rabbitMqConnect = rabbitMqConnect
 }
 
+// GetChannel 返回可用 Channel，必要时自动重新创建。
 func (worker *Worker) GetChannel() *amqp.Channel {
-	if worker.channel == nil || worker.IsChannelClosed() {
-		if worker.rabbitMqConnect != nil {
-			worker.channel, _ = worker.rabbitMqConnect.Channel()
-		}
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
+
+	if worker.channel != nil && !worker.channel.IsClosed() {
+		return worker.channel
 	}
+	if worker.rabbitMqConnect == nil {
+		return nil
+	}
+	channel, err := worker.rabbitMqConnect.Channel()
+	if err != nil {
+		worker.channel = nil
+		worker.LogError("open channel: ", err)
+		return nil
+	}
+	worker.channel = channel
 	return worker.channel
 }
 
+// SetChannel 替换 worker 当前使用的 Channel。
 func (worker *Worker) SetChannel(channel *amqp.Channel) {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	worker.channel = channel
 }
 
+// Perform 将消息序列化为 JSON 并发布到 worker 配置的 Exchange。
 func (worker *Worker) Perform(message interface{}) {
-	b, _ := json.Marshal(&message)
-	worker.rabbitMqConnect.PublishMessageWithRouteKey(
+	body, err := json.Marshal(message)
+	if err != nil {
+		worker.LogError("marshal published message: ", err)
+		return
+	}
+	connect := worker.GetRabbitMqConnect()
+	if connect == nil {
+		worker.LogError("publish message: rabbitmq connection is unavailable")
+		return
+	}
+	if err = connect.PublishMessageWithRouteKey(
 		worker.GetExchange(),
 		worker.GetRoutingKey(),
 		"application/json",
 		false,
 		false,
-		&b,
+		&body,
 		amqp.Table{},
 		amqp.Persistent,
 		"",
-	)
+	); err != nil {
+		worker.LogError("publish message: ", err)
+	}
 }
 
+// IsChannelClosed 返回当前 Channel 是否为空或已关闭。
 func (worker *Worker) IsChannelClosed() bool {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	return worker.channel == nil || worker.channel.IsClosed()
 }
 
+// IsReady 返回 worker 是否处于就绪状态。
 func (worker *Worker) IsReady() bool {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	return worker.Ready
 }
 
+// Start 将 worker 标记为就绪。
 func (worker *Worker) Start() {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	worker.Ready = true
 }
 
+// Stop 将 worker 标记为未就绪。
 func (worker *Worker) Stop() {
+	workerStateMu.Lock()
+	defer workerStateMu.Unlock()
 	worker.Ready = false
 }
 
+// Recycle 关闭连接并清空 worker 持有的 Channel。
 func (worker *Worker) Recycle() {
-	if !worker.rabbitMqConnect.IsClosed() {
-		worker.rabbitMqConnect.Close()
+	if connect := worker.GetRabbitMqConnect(); connect != nil {
+		_ = connect.Close()
 	}
+	workerStateMu.Lock()
+	worker.channel = nil
+	workerStateMu.Unlock()
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -12,53 +13,69 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// SubscribeMessageByQueue declares the worker topology and consumes the worker
-// queue. Acknowledging happens in acknowledge, after the message was processed
-// or handed to the retry topology: a message must never be acked before its
-// outcome is known, otherwise a crash loses it.
+// SubscribeMessageByQueue 声明拓扑并启动一个串行消费者；确认发生在处理完成之后。
 func SubscribeMessageByQueue(worker WorkerI, arguments amqp.Table) (err error) {
 	channel := worker.GetChannel()
 	if channel == nil {
 		return fmt.Errorf("channel for queue %s is unavailable", worker.GetQueue())
 	}
-	if err = buildTopology(worker, channel, arguments); err != nil {
-		return
+	settlement, msgs, err := prepareSubscription(worker, channel, arguments)
+	if err != nil {
+		return err
 	}
-	go consumeMessages(worker, channel)
+	go func() {
+		defer releaseSettlement(channel, settlement)
+		consumeMessages(worker, settlement, msgs)
+	}()
 	return
 }
 
-// SubscribeMessages declares the topology like SubscribeMessageByQueue and
-// processes every delivery in its own goroutine. Deliveries are handed out by
-// the delivery lock of the connection, so the concurrency of a worker is
-// bounded by its consumer count, not by the goroutines started here.
+// SubscribeMessages 声明拓扑并并发消费，并发数由 GetThreads 或 GOMAXPROCS 限制。
 func SubscribeMessages(worker WorkerI, arguments amqp.Table) (err error) {
 	channel := worker.GetChannel()
 	if channel == nil {
 		return fmt.Errorf("channel for queue %s is unavailable", worker.GetQueue())
 	}
-	if err = buildTopology(worker, channel, arguments); err != nil {
-		return
+	settlement, msgs, err := prepareSubscription(worker, channel, arguments)
+	if err != nil {
+		return err
 	}
 	go func() {
-		msgs, err := consume(worker, channel)
-		if err != nil {
-			log.Println("Consume error: ", err)
-			return
-		}
-		for d := range msgs {
-			go func(d amqp.Delivery) {
-				process(worker, channel, &d)
-			}(d)
-		}
+		defer releaseSettlement(channel, settlement)
+		processMessages(worker, settlement, msgs)
 	}()
 	return
 }
 
-// buildTopology declares the worker queue, its failed queue and the redelivery
-// chain. A queue is declared exactly once, because redeclaring it with
-// different arguments is rejected by the broker with a 406 and closes the
-// channel.
+// subscriptionChannel 汇总声明拓扑和创建消费者所需的最小接口。
+type subscriptionChannel interface {
+	topologyChannel
+	consumeChannel
+}
+
+// prepareSubscription 在结算锁内声明拓扑并启动消费者，避免与事务交错。
+func prepareSubscription(worker WorkerI, channel subscriptionChannel, arguments amqp.Table) (*settlement, <-chan amqp.Delivery, error) {
+	settlement := acquireSettlement(channel)
+	var msgs <-chan amqp.Delivery
+	err := settlement.with(func() error {
+		if err := buildTopology(worker, channel, arguments); err != nil {
+			return err
+		}
+		var consumeErr error
+		msgs, consumeErr = consume(worker, channel)
+		if consumeErr != nil {
+			return fmt.Errorf("consume queue %s: %w", worker.GetQueue(), consumeErr)
+		}
+		return nil
+	})
+	if err != nil {
+		releaseSettlement(channel, settlement)
+		return nil, nil, err
+	}
+	return settlement, msgs, nil
+}
+
+// buildTopology 声明 worker 队列、失败队列、Exchange 绑定和重试链。
 func buildTopology(worker WorkerI, channel topologyChannel, arguments amqp.Table) (err error) {
 	queue, durable := worker.GetQueue(), worker.GetDurable()
 	// The dead letter arguments belong to the single declare: they are what
@@ -94,6 +111,7 @@ func buildTopology(worker WorkerI, channel topologyChannel, arguments amqp.Table
 	return buildRetryTopology(worker, channel)
 }
 
+// mergeTable 合并 AMQP 参数表，overrides 覆盖 base 中的同名键。
 func mergeTable(base amqp.Table, overrides map[string]interface{}) amqp.Table {
 	merged := amqp.Table{}
 	for key, value := range base {
@@ -105,22 +123,7 @@ func mergeTable(base amqp.Table, overrides map[string]interface{}) amqp.Table {
 	return merged
 }
 
-// buildRetryTopology builds the redelivery chain.
-//
-// A failed message is published as a copy to the stage queue of the attempt
-// number, and that copy carries the remaining cumulative delay: the stage
-// expires it back into the worker queue. Because the delay of attempt N is its
-// cumulative wait, a stage queue holds the DELTA to the next stage, and the
-// chain reproduces the configured per-attempt waiting times without ever
-// delaying a message twice.
-//
-// The worker queue dead letters to the retry queue, which is the safety net for
-// a message the server redelivers on its own: a copy parked there waits the
-// retry TTL and is then redelivered through the same chain.
-//
-// Every exchange hop uses the worker queue name as the exchange and the name of
-// the destination queue as the routing key, and each queue is bound by exactly
-// that key, so a message reaches the queue it was addressed to and nothing else.
+// buildRetryTopology 声明重试交换机、重试队列和各阶段延迟队列。
 func buildRetryTopology(worker WorkerI, channel topologyChannel) (err error) {
 	queue, durable := worker.GetQueue(), worker.GetDurable()
 	failed, retry := worker.GetFailedQueue(), worker.GetRetryQueue()
@@ -203,10 +206,7 @@ type stage struct {
 	queue string
 }
 
-// retryDelays normalizes the configured retry steps into the cumulative waiting
-// time of each attempt, in the order they were configured. A step that is not a
-// duration is skipped, and a sub-millisecond wait is raised to the 1ms floor the
-// protocol can express.
+// retryDelays 将配置的 steps 规范化为每次尝试的累计等待时间。
 func retryDelays(worker WorkerI) []time.Duration {
 	var delays []time.Duration
 	for _, step := range worker.GetSteps() {
@@ -226,6 +226,7 @@ func retryDelays(worker WorkerI) []time.Duration {
 	return delays
 }
 
+// consume 设置 QoS 并创建 broker 消费者。
 func consume(worker WorkerI, channel consumeChannel) (<-chan amqp.Delivery, error) {
 	if prefetch := worker.PrefetchCount(); prefetch > 0 {
 		if err := channel.Qos(prefetch, 0, false); err != nil {
@@ -236,15 +237,31 @@ func consume(worker WorkerI, channel consumeChannel) (<-chan amqp.Delivery, erro
 	return channel.Consume(worker.GetQueue(), tag, false, false, false, false, nil)
 }
 
-func consumeMessages(worker WorkerI, channel consumeChannel) {
-	msgs, err := consume(worker, channel)
-	if err != nil {
-		log.Println("Consume error: ", err)
-		return
-	}
+// consumeMessages 串行处理消息，直到投递 channel 关闭。
+func consumeMessages(worker WorkerI, settlement *settlement, msgs <-chan amqp.Delivery) {
 	for d := range msgs {
-		process(worker, channel, &d)
+		processDelivery(worker, settlement, &d)
 	}
+}
+
+// processMessages 使用有界并发处理消息，并等待在途任务结束。
+func processMessages(worker WorkerI, settlement *settlement, messages <-chan amqp.Delivery) {
+	limit := worker.GetThreads()
+	if limit <= 0 {
+		limit = runtime.GOMAXPROCS(0)
+	}
+	semaphore := make(chan struct{}, limit)
+	var group sync.WaitGroup
+	for delivery := range messages {
+		semaphore <- struct{}{}
+		group.Add(1)
+		go func(delivery amqp.Delivery) {
+			defer group.Done()
+			defer func() { <-semaphore }()
+			processDelivery(worker, settlement, &delivery)
+		}(delivery)
+	}
+	group.Wait()
 }
 
 // topologyChannel is the part of *amqp.Channel the topology declaration uses.
@@ -272,6 +289,7 @@ var (
 // against this narrow interface and verified with a fake channel instead of a
 // broker.
 type deliveryChannel interface {
+	IsClosed() bool
 	Ack(tag uint64, multiple bool) error
 	Nack(tag uint64, multiple, requeue bool) error
 	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
@@ -283,14 +301,19 @@ type deliveryChannel interface {
 
 var _ deliveryChannel = (*amqp.Channel)(nil)
 
-// process runs one delivery and settles it exactly once: a processed message is
-// acknowledged, an unprocessed one moves to the retry topology, which removes
-// the original together with the copy it parked, or is requeued.
+// process 处理单条消息，并在结束后归还结算状态。
 func process(worker WorkerI, channel deliveryChannel, d *amqp.Delivery) {
+	settlement := acquireSettlement(channel)
+	defer releaseSettlement(channel, settlement)
+	processDelivery(worker, settlement, d)
+}
+
+// processDelivery 处理一条投递并保证只结算一次：成功 ack，失败重试或 requeue。
+func processDelivery(worker WorkerI, settlement *settlement, d *amqp.Delivery) {
 	exception := Exception{}
 	err := excute(worker, &d.Body, &exception)
 	if err == nil && exception.Msg == "" {
-		acknowledge(worker, channel, d)
+		acknowledge(worker, settlement, d)
 		return
 	}
 	// A recovered panic is the cause of the failure: the unwinding discarded
@@ -301,61 +324,48 @@ func process(worker WorkerI, channel deliveryChannel, d *amqp.Delivery) {
 	}
 	// retry removes the original itself, in the same transaction as the copy it
 	// parked, so nothing is settled twice here.
-	if retry(worker, channel, d, cause) {
+	if retry(worker, settlement, d, cause) {
 		return
 	}
 	// The message was neither processed nor parked: redeliver it instead of
 	// losing it, because an ack would drop it and a plain ack-less return
 	// withholds it until the consumer goes away.
-	if !requeue(worker, channel, d) {
+	if !requeue(worker, settlement, d) {
 		log.Println("ERROR: ", worker.GetName(), " queue ", worker.GetQueue(), " message ", d.DeliveryTag, " failed and was not requeued: ", cause)
 	}
 }
 
-// acknowledge removes a delivery. "ack: false" keeps the delivery on the
-// server, so a crashed consumer cannot drop a processed message.
-//
-// The ack is always single: AckMultiple is offered as a configuration but is
-// only safe when exactly one goroutine settles the channel, and the base
-// delivery API settles per delivery tag anyway.
-func acknowledge(worker WorkerI, channel deliveryChannel, d *amqp.Delivery) {
+// acknowledge 根据 ack 配置确认一条已成功处理的消息。
+func acknowledge(worker WorkerI, settlement *settlement, d *amqp.Delivery) {
 	if !worker.AckEnabled() {
 		return
 	}
-	if err := channel.Ack(d.DeliveryTag, false); err != nil {
+	if err := settlement.ack(d.DeliveryTag); err != nil {
 		log.Println("Ack error: ", err)
 	}
 }
 
-func requeue(worker WorkerI, channel deliveryChannel, d *amqp.Delivery) bool {
+// requeue 根据 requeue 配置将未处理消息重新入队。
+func requeue(worker WorkerI, settlement *settlement, d *amqp.Delivery) bool {
 	if !worker.RequeueEnabled() {
 		return false
 	}
-	if err := channel.Nack(d.DeliveryTag, false, true); err != nil {
+	if err := settlement.nack(d.DeliveryTag, true); err != nil {
 		log.Println("Requeue error: ", err)
 		return false
 	}
 	return true
 }
 
-// retry moves a failed message into the redelivery topology: the copy is
-// addressed to the stage of its attempt number, and that stage applies the
-// remaining cumulative delay before redelivering it through the chain. A message
-// that exhausted its budget is parked in the failed queue instead. It reports
-// whether the delivery was settled, so its caller never settles it twice.
-//
-// The publish is done in a transaction, so the copy and the removal of the
-// original are committed together: a connection loss cannot park a message
-// while its original keeps coming back, or drop it while its copy was never
-// made.
-func retry(worker WorkerI, channel deliveryChannel, d *amqp.Delivery, cause error) bool {
+// retry 将失败消息送入重试链或失败队列，并返回是否已完成结算。
+func retry(worker WorkerI, settlement *settlement, d *amqp.Delivery, cause error) bool {
 	if !worker.RetryEnabled() {
 		return false
 	}
 	delays := retryDelays(worker)
 	attempted := retryCount(d)
 	if attempted >= worker.MaxRetry() || len(delays) == 0 {
-		if err := parkInFailedQueue(worker, channel, d, cause); err == nil {
+		if err := parkInFailedQueue(worker, settlement, d, cause); err == nil {
 			return true
 		} else if errors.Is(err, errIndeterminate) {
 			log.Println("Failed queue publish outcome unknown, leaving the message unacknowledged: ", err)
@@ -375,7 +385,7 @@ func retry(worker WorkerI, channel deliveryChannel, d *amqp.Delivery, cause erro
 	headers["tryCount"] = int32(attempted + 1)
 	headers["err"] = cause.Error()
 	publish := func() error {
-		return channel.PublishWithContext(
+		return settlement.channel.PublishWithContext(
 			context.Background(),
 			worker.GetQueue(),
 			stage,
@@ -390,7 +400,7 @@ func retry(worker WorkerI, channel deliveryChannel, d *amqp.Delivery, cause erro
 			},
 		)
 	}
-	err := publishThenAck(channel, publish, d.DeliveryTag)
+	err := settlement.publishThenAck(publish, d.DeliveryTag)
 	if err == nil {
 		return true
 	}
@@ -406,6 +416,7 @@ func retry(worker WorkerI, channel deliveryChannel, d *amqp.Delivery, cause erro
 	return false
 }
 
+// stageQueue 返回第 index 次重试对应的阶段队列名。
 func stageQueue(worker WorkerI, index int) string {
 	return fmt.Sprintf("%s.retry.%d", worker.GetQueue(), index+1)
 }
@@ -415,56 +426,159 @@ func stageQueue(worker WorkerI, index int) string {
 // delivery again on its account.
 var errIndeterminate = errors.New("transaction outcome unknown")
 
-// transactionLocks serializes the transactional section per channel. A
-// transaction in AMQP is a property of the channel, not of a delivery: a
-// rollback discards every uncommitted publish and ack of that channel, so two
-// deliveries that park their copies on one channel at the same time can discard
-// each other's copy and then acknowledge an original whose copy is gone. The
-// critical section is held for the whole transaction, which is what makes the
-// publish and its ack atomic for the message rather than for the channel.
-var transactionLocks sync.Map
-
-func transactionLock(channel deliveryChannel) *sync.Mutex {
-	lock, _ := transactionLocks.LoadOrStore(channel, &sync.Mutex{})
-	return lock.(*sync.Mutex)
+// settlement serializes every acknowledgement and transaction on one consumer
+// channel. A transaction in AMQP is a property of the channel, not of a
+// delivery: an ack issued by another goroutine while a transaction is open
+// joins that transaction, and a rollback then discards it as well.
+//
+// A channel also stays in transaction mode after TxCommit. Once a retry has
+// selected transactions, every later ack and nack must therefore be committed
+// too; otherwise a successful delivery is left unacknowledged until the channel
+// goes away and the broker redelivers it.
+type settlement struct {
+	channel       deliveryChannel
+	mutex         sync.Mutex
+	transactional bool
 }
 
-// publishThenAck publishes a replacement and removes the original delivery in
-// one transaction, so both are committed together: a connection loss can
-// neither park a message while its original keeps coming back nor drop it while
-// its copy was never made.
-func publishThenAck(channel deliveryChannel, publish func() error, tag uint64) error {
-	// The *amqp.Channel pointer is the lock key, and the interface is comparable
-	// for every real channel and for the fake used in the tests.
-	lock := transactionLock(channel)
-	lock.Lock()
-	defer lock.Unlock()
+// newSettlement 为指定 Channel 创建结算状态。
+func newSettlement(channel deliveryChannel) *settlement {
+	return &settlement{channel: channel}
+}
 
-	if err := channel.Tx(); err != nil {
-		return fmt.Errorf("transaction open: %w", err)
+// settlementRegistry shares one settlement between all subscriptions that use
+// the same channel. A channel is channel-wide state, so two subscriptions on it
+// must not settle independently. Entries are released when the last consumer
+// stops; a channel that has selected transactions is retained until it is
+// closed, because a later subscription on that channel would still be in
+// transaction mode.
+type settlementEntry struct {
+	settlement *settlement
+	refs       int
+}
+
+var settlementRegistry = struct {
+	sync.Mutex
+	entries map[deliveryChannel]*settlementEntry
+}{entries: make(map[deliveryChannel]*settlementEntry)}
+
+// acquireSettlement 获取或创建 Channel 对应的共享结算状态，并增加引用计数。
+func acquireSettlement(channel deliveryChannel) *settlement {
+	settlementRegistry.Lock()
+	defer settlementRegistry.Unlock()
+
+	for existingChannel, entry := range settlementRegistry.entries {
+		if entry.refs == 0 && existingChannel.IsClosed() {
+			delete(settlementRegistry.entries, existingChannel)
+		}
 	}
-	err := publish()
-	if err == nil {
-		err = channel.Ack(tag, false)
+	entry := settlementRegistry.entries[channel]
+	if entry == nil {
+		entry = &settlementEntry{settlement: newSettlement(channel)}
+		settlementRegistry.entries[channel] = entry
 	}
-	if err != nil {
-		_ = channel.TxRollback()
-		return err
+	entry.refs++
+	return entry.settlement
+}
+
+// releaseSettlement 减少引用计数，并在不再需要时清理结算状态。
+func releaseSettlement(channel deliveryChannel, used *settlement) {
+	settlementRegistry.Lock()
+	defer settlementRegistry.Unlock()
+
+	entry := settlementRegistry.entries[channel]
+	if entry == nil || entry.settlement != used {
+		return
 	}
-	if err = channel.TxCommit(); err != nil {
+	entry.refs--
+	if entry.refs <= 0 && (!used.isTransactional() || channel.IsClosed()) {
+		delete(settlementRegistry.entries, channel)
+	}
+}
+
+// with 在结算互斥锁内执行指定操作。
+func (s *settlement) with(fn func() error) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return fn()
+}
+
+// isTransactional 返回 Channel 是否已进入事务模式。
+func (s *settlement) isTransactional() bool {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.transactional
+}
+
+// ack 确认消息；事务模式下同时提交事务。
+func (s *settlement) ack(tag uint64) error {
+	return s.with(func() error {
+		if err := s.channel.Ack(tag, false); err != nil {
+			return err
+		}
+		return s.commitIfTransactional()
+	})
+}
+
+// nack 拒绝消息；事务模式下同时提交事务。
+func (s *settlement) nack(tag uint64, requeue bool) error {
+	return s.with(func() error {
+		if err := s.channel.Nack(tag, false, requeue); err != nil {
+			return err
+		}
+		return s.commitIfTransactional()
+	})
+}
+
+// commitIfTransactional 在事务模式下提交当前事务。
+func (s *settlement) commitIfTransactional() error {
+	if !s.transactional {
+		return nil
+	}
+	if err := s.channel.TxCommit(); err != nil {
 		return fmt.Errorf("%w: %v", errIndeterminate, err)
 	}
 	return nil
 }
 
-// parkInFailedQueue stores an exhausted message, carrying the attempt count
-// and the last error, in the failed queue of the worker. The copy and the
-// removal of the original are committed together, so a message can never be
-// lost between the two queues and can never be left behind twice.
-func parkInFailedQueue(worker WorkerI, channel deliveryChannel, d *amqp.Delivery, cause error) error {
-	if _, err := channel.QueueDeclare(worker.GetFailedQueue(), worker.GetDurable(), false, false, false, nil); err != nil {
+// publishThenAck 为单条投递执行“发布副本后确认原消息”的事务。
+func publishThenAck(channel deliveryChannel, publish func() error, tag uint64) error {
+	settlement := acquireSettlement(channel)
+	defer releaseSettlement(channel, settlement)
+	return settlement.publishThenAck(publish, tag)
+}
+
+// publishThenAck 在结算锁内发布副本并确认原消息。
+func (s *settlement) publishThenAck(publish func() error, tag uint64) error {
+	return s.with(func() error {
+		return s.publishThenAckLocked(publish, tag)
+	})
+}
+
+// publishThenAckLocked 在已持有结算锁时执行发布、确认和事务提交。
+func (s *settlement) publishThenAckLocked(publish func() error, tag uint64) error {
+	if !s.transactional {
+		if err := s.channel.Tx(); err != nil {
+			return fmt.Errorf("transaction open: %w", err)
+		}
+		s.transactional = true
+	}
+	err := publish()
+	if err == nil {
+		err = s.channel.Ack(tag, false)
+	}
+	if err != nil {
+		_ = s.channel.TxRollback()
 		return err
 	}
+	if err = s.channel.TxCommit(); err != nil {
+		return fmt.Errorf("%w: %v", errIndeterminate, err)
+	}
+	return nil
+}
+
+// parkInFailedQueue 将重试耗尽的消息写入失败队列。
+func parkInFailedQueue(worker WorkerI, settlement *settlement, d *amqp.Delivery, cause error) error {
 	headers := amqp.Table{}
 	for k, v := range d.Headers {
 		headers[k] = v
@@ -473,28 +587,30 @@ func parkInFailedQueue(worker WorkerI, channel deliveryChannel, d *amqp.Delivery
 	if cause != nil {
 		headers["err"] = cause.Error()
 	}
-	return publishThenAck(channel, func() error {
-		return channel.PublishWithContext(
-			context.Background(),
-			"",
-			worker.GetFailedQueue(),
-			false,
-			false,
-			amqp.Publishing{
-				Headers:      headers,
-				ContentType:  d.ContentType,
-				Body:         d.Body,
-				DeliveryMode: amqp.Persistent,
-				Priority:     d.Priority,
-			},
-		)
-	}, d.DeliveryTag)
+	return settlement.with(func() error {
+		if _, err := settlement.channel.QueueDeclare(worker.GetFailedQueue(), worker.GetDurable(), false, false, false, nil); err != nil {
+			return err
+		}
+		return settlement.publishThenAckLocked(func() error {
+			return settlement.channel.PublishWithContext(
+				context.Background(),
+				"",
+				worker.GetFailedQueue(),
+				false,
+				false,
+				amqp.Publishing{
+					Headers:      headers,
+					ContentType:  d.ContentType,
+					Body:         d.Body,
+					DeliveryMode: amqp.Persistent,
+					Priority:     d.Priority,
+				},
+			)
+		}, d.DeliveryTag)
+	})
 }
 
-// retryCount reads how many processing attempts a delivery already had. Only
-// the header type amqp091-go decodes for int32 is trusted; a header an
-// application published as another type is counted as the first attempt
-// instead of panicking the consumer loop.
+// retryCount 读取消息已重试次数，非法值按首次尝试处理。
 func retryCount(d *amqp.Delivery) int {
 	count, ok := d.Headers["tryCount"]
 	if !ok {
@@ -502,15 +618,24 @@ func retryCount(d *amqp.Delivery) int {
 	}
 	switch value := count.(type) {
 	case int32:
+		if value < 0 {
+			return 0
+		}
 		return int(value)
 	case int64:
+		if value < 0 {
+			return 0
+		}
 		return int(value)
 	case int:
+		if value < 0 {
+			return 0
+		}
 		return value
 	case string:
 		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			log.Println("tryCount header ", value, " is not a number, treated as the first attempt")
+		if err != nil || parsed < 0 {
+			log.Println("tryCount header ", value, " is not a non-negative number, treated as the first attempt")
 			return 0
 		}
 		return parsed
@@ -519,6 +644,7 @@ func retryCount(d *amqp.Delivery) int {
 	return 0
 }
 
+// consumerTag 返回消费者标签，空名称使用默认前缀。
 func consumerTag(name string) string {
 	if name == "" {
 		return "sneaker-go"
@@ -526,6 +652,7 @@ func consumerTag(name string) string {
 	return name
 }
 
+// excute 执行 worker 的 Work 方法并捕获 panic。
 func excute(worker WorkerI, body *[]byte, exception *Exception) (err error) {
 	defer func(e *Exception) {
 		r := recover()
